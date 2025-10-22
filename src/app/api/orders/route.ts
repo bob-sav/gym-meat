@@ -1,91 +1,94 @@
-// src/app/api/orders/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
+import { getCart, setCart, cartTotals } from "@/lib/cart";
+import { generateShortCode } from "@/lib/shortcode";
 import { z } from "zod";
-import { getCart, cartTotals, setCart } from "@/lib/cart";
-import { generateShortCode } from "@/lib/shortcode"; // 6-digit code
+import { auth } from "@/auth"; // your NextAuth export
 
 const prisma = new PrismaClient();
 
-const createOrderSchema = z.object({
-  pickupGymName: z.string().min(1, "pickupGymName is required"),
-  // Optional, ISO datetime string for planned pickup time
-  pickupWhen: z.string().datetime().optional(),
+const createSchema = z.object({
+  pickupGymId: z.string().min(1).optional(),
+  pickupGymName: z.string().min(1).optional(),
+  pickupWhen: z.string().datetime().optional(), // ISO
+  notes: z.string().max(1000).optional(),
 });
 
-// GET /api/orders (optional simple self-check / future list)
-export async function GET() {
-  return NextResponse.json({ ok: true });
-}
-
-// POST /api/orders
 export async function POST(req: NextRequest) {
   try {
-    // Must be authenticated
-    const userId = (req as any).auth?.user?.id;
-    if (!userId) {
+    // Require login
+    const session = await auth();
+    if (!session?.user?.email) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+      select: { id: true },
+    });
+    if (!user)
+      return NextResponse.json({ error: "User missing" }, { status: 400 });
 
-    const body = await req.json();
-    const parsed = createOrderSchema.safeParse(body);
+    // Parse body
+    const body = await req.json().catch(() => ({}));
+    const parsed = createSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         { error: "Invalid payload", details: parsed.error.flatten() },
         { status: 400 }
       );
     }
-    const { pickupGymName, pickupWhen } = parsed.data;
+    const { pickupGymId, pickupGymName, pickupWhen, notes } = parsed.data;
 
-    // Load cart from cookie
-    const cart = await getCart();
+    // Read cart
+    const cart = await getCart(); // our cookie-based cart
     if (!cart.lines.length) {
       return NextResponse.json({ error: "Cart is empty" }, { status: 400 });
     }
-
-    // Compute totals from cart snapshot
     const totals = cartTotals(cart);
-    const shortCode = generateShortCode(); // e.g. 6-digit human-friendly
 
-    // Persist order + lines atomically
+    // Create shortCode with collision retry (unique in DB)
+    let shortCode = generateShortCode(6);
+    for (let i = 0; i < 5; i++) {
+      const exists = await prisma.order.findUnique({ where: { shortCode } });
+      if (!exists) break;
+      shortCode = generateShortCode(6);
+    }
+
+    // Create order + lines
     const created = await prisma.$transaction(async (tx) => {
       const order = await tx.order.create({
         data: {
+          userId: user.id,
           shortCode,
           state: "PENDING",
-          totalCents: totals.totalCents,
-          pickupGymName,
+          pickupGymId: pickupGymId ?? null,
+          pickupGymName: pickupGymName ?? null,
           pickupWhen: pickupWhen ? new Date(pickupWhen) : null,
-          userId, // if your Order model has userId; omit if not
-        } as any,
+          subtotalCents: totals.subtotalCents,
+          totalCents: totals.totalCents,
+          notes: notes ?? null,
+        },
       });
 
-      // Insert lines
+      // join each line to a Product (best-effort)
       for (const line of cart.lines) {
-        // unit price = base + options
-        const optionTotal = line.options.reduce(
-          (s, o) => s + (o.priceDeltaCents || 0),
-          0
-        );
-        const unitPriceCents = line.basePriceCents + optionTotal;
-
-        // Try to capture grams from line if present; else parse from unitLabel "250g"
-        let variantSizeGrams: number | null =
-          (line as any).variantSizeGrams ?? null;
-        if (variantSizeGrams == null && line.unitLabel) {
-          const m = /(\d+)\s*g/i.exec(line.unitLabel);
-          if (m) variantSizeGrams = parseInt(m[1], 10);
-        }
+        const prod = await tx.product.findUnique({
+          where: { id: line.productId },
+          select: { id: true, species: true, part: true },
+        });
 
         await tx.orderLine.create({
           data: {
             orderId: order.id,
-            productId: line.productId,
+            productId: prod?.id ?? line.productId,
             productName: line.name,
-            variantSizeGrams: variantSizeGrams ?? 0, // store 0 if unknown
-            unitPriceCents,
+            species: (prod?.species as any) ?? "OTHER",
+            part: (prod?.part as any) ?? null,
+            variantSizeGrams: null,
+            unitLabel: line.unitLabel ?? null,
+            basePriceCents: line.basePriceCents,
+            optionsJson: line.options ?? [],
             qty: line.qty,
-            optionsJson: line.options, // JSON snapshot
           } as any,
         });
       }
@@ -93,7 +96,7 @@ export async function POST(req: NextRequest) {
       return order;
     });
 
-    // Clear cart cookie after success
+    // Clear cart
     const res = NextResponse.json({
       order: {
         id: created.id,
@@ -101,13 +104,41 @@ export async function POST(req: NextRequest) {
         state: created.state,
         totalCents: created.totalCents,
         pickupGymName: created.pickupGymName,
-        pickupWhen: created.pickupWhen,
       },
     });
     setCart(res, { lines: [] });
+
     return res;
-  } catch (err) {
-    console.error("POST /api/orders failed:", err);
+  } catch (e) {
+    console.error("POST /api/orders failed", e);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
+}
+
+// (Optional) GET your own orders
+export async function GET() {
+  const session = await (auth as any)();
+  if (!session?.user?.email) {
+    return NextResponse.json({ items: [] });
+  }
+  const u = await prisma.user.findUnique({
+    where: { email: session.user.email },
+    select: { id: true },
+  });
+  if (!u) return NextResponse.json({ items: [] });
+
+  const items = await prisma.order.findMany({
+    where: { userId: u.id },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      shortCode: true,
+      state: true,
+      totalCents: true,
+      pickupGymName: true,
+      pickupWhen: true,
+      createdAt: true,
+    },
+  });
+  return NextResponse.json({ items });
 }
