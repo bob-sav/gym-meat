@@ -31,7 +31,23 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
-.env*
+# Env files (keep only the example in git)
+.env
+.env.*
+!.env.example
+# Node/Next
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn.lock
+pnpm-lock.yaml
+
+# OS/editor
+.DS_Store
+*.log
+
+
 
 # vercel
 .vercel
@@ -39,3 +55,5 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/src/generated/prisma
