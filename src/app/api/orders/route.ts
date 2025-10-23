@@ -10,7 +10,7 @@ const prisma = new PrismaClient();
 const createSchema = z.object({
   pickupGymId: z.string().min(1).optional(),
   pickupGymName: z.string().min(1).optional(),
-  pickupWhen: z.string().datetime().optional(), // ISO
+  pickupWhen: z.string().datetime({ offset: true }).optional(), // ISO if we get date without timezone
   notes: z.string().max(1000).optional(),
 });
 
@@ -55,59 +55,85 @@ export async function POST(req: NextRequest) {
     }
 
     // Create order + lines
-    const created = await prisma.$transaction(async (tx) => {
-      const order = await tx.order.create({
-        data: {
-          userId: user.id,
-          shortCode,
-          state: "PENDING",
-          pickupGymId: pickupGymId ?? null,
-          pickupGymName: pickupGymName ?? null,
-          pickupWhen: pickupWhen ? new Date(pickupWhen) : null,
-          subtotalCents: totals.subtotalCents,
-          totalCents: totals.totalCents,
-          notes: notes ?? null,
-        },
-      });
+    // Create order + lines with shortCode retry on unique violation
+    let created: Awaited<ReturnType<typeof prisma.order.create>> | null = null;
 
-      // join each line to a Product (best-effort)
-      for (const line of cart.lines) {
-        const prod = await tx.product.findUnique({
-          where: { id: line.productId },
-          select: { id: true, species: true, part: true },
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        created = await prisma.$transaction(async (tx) => {
+          const shortCode = generateShortCode(6);
+
+          // 1) Create order
+          const order = await tx.order.create({
+            data: {
+              userId: user.id,
+              shortCode,
+              state: "PENDING",
+              pickupGymId: pickupGymId ?? null,
+              pickupGymName: pickupGymName ?? null,
+              pickupWhen: pickupWhen ? new Date(pickupWhen) : null,
+              subtotalCents: totals.subtotalCents,
+              totalCents: totals.totalCents,
+              notes: notes ?? null,
+            },
+          });
+
+          // 2) Insert lines (best-effort join to product for species/part)
+          for (const line of cart.lines) {
+            const prod = await tx.product.findUnique({
+              where: { id: line.productId },
+              select: { id: true, species: true, part: true },
+            });
+
+            await tx.orderLine.create({
+              data: {
+                orderId: order.id,
+                productId: prod?.id ?? line.productId,
+                productName: line.name,
+                species: (prod?.species as any) ?? "OTHER",
+                part: (prod?.part as any) ?? null,
+                variantSizeGrams: null, // fill later if you wire variants
+                unitLabel: line.unitLabel ?? null,
+                basePriceCents: line.basePriceCents,
+                optionsJson: line.options ?? [],
+                qty: line.qty,
+              } as any,
+            });
+          }
+
+          return order;
         });
 
-        await tx.orderLine.create({
-          data: {
-            orderId: order.id,
-            productId: prod?.id ?? line.productId,
-            productName: line.name,
-            species: (prod?.species as any) ?? "OTHER",
-            part: (prod?.part as any) ?? null,
-            variantSizeGrams: null,
-            unitLabel: line.unitLabel ?? null,
-            basePriceCents: line.basePriceCents,
-            optionsJson: line.options ?? [],
-            qty: line.qty,
-          } as any,
-        });
+        // success -> break the retry loop
+        break;
+      } catch (e: any) {
+        // Prisma unique constraint violation => shortCode collision, retry
+        if (e?.code === "P2002") continue;
+        // any other error -> rethrow
+        throw e;
       }
+    }
 
-      return order;
-    });
+    if (!created) {
+      return NextResponse.json(
+        { error: "Could not allocate order code, please retry." },
+        { status: 500 }
+      );
+    }
 
-    // Clear cart
+    // Clear cart cookie & return trimmed order response
     const res = NextResponse.json({
       order: {
         id: created.id,
         shortCode: created.shortCode,
         state: created.state,
+        subtotalCents: created.subtotalCents,
         totalCents: created.totalCents,
         pickupGymName: created.pickupGymName,
+        pickupWhen: created.pickupWhen,
       },
     });
     setCart(res, { lines: [] });
-
     return res;
   } catch (e) {
     console.error("POST /api/orders failed", e);
