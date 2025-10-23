@@ -12,12 +12,14 @@ const createSchema = z.object({
   active: z.boolean().optional(),
 });
 
+// GET /api/gym  -> full list for backoffice (requires login)
 export async function GET() {
-  // require login (you can harden this later with global admin check)
   const session = await auth();
-  if (!session?.user?.email) return NextResponse.json({ items: [] });
+  if (!session?.user?.email)
+    return NextResponse.json({ items: [] }, { status: 401 });
 
-  const items = await prisma.gym.findMany({
+  // TODO: tighten to only global admins if/when you add that
+  const gyms = await prisma.gym.findMany({
     orderBy: [{ active: "desc" }, { name: "asc" }],
     include: {
       admins: {
@@ -27,7 +29,7 @@ export async function GET() {
   });
 
   return NextResponse.json({
-    items: items.map((g) => ({
+    items: gyms.map((g) => ({
       id: g.id,
       name: g.name,
       address: g.address,
