@@ -16,7 +16,6 @@ const createSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    // Require login
     const session = await auth();
     if (!session?.user?.email) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -25,118 +24,119 @@ export async function POST(req: NextRequest) {
       where: { email: session.user.email },
       select: { id: true },
     });
-    if (!user)
+    if (!user) {
       return NextResponse.json({ error: "User missing" }, { status: 400 });
-
-    // Parse body
-    const body = await req.json().catch(() => ({}));
-    const parsed = createSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Invalid payload", details: parsed.error.flatten() },
-        { status: 400 }
-      );
     }
-    const { pickupGymId, pickupGymName, pickupWhen, notes } = parsed.data;
+
+    // Parse body and normalize fields
+    let body: any = {};
+    try {
+      body = await req.json();
+    } catch {
+      body = {};
+    }
+
+    // Normalize empty strings to undefined
+    const pickupGymId =
+      typeof body.pickupGymId === "string" && body.pickupGymId.trim() !== ""
+        ? body.pickupGymId.trim()
+        : undefined;
+    const pickupGymName =
+      typeof body.pickupGymName === "string" && body.pickupGymName.trim() !== ""
+        ? body.pickupGymName.trim()
+        : undefined;
+    const notes =
+      typeof body.notes === "string" && body.notes.trim() !== ""
+        ? body.notes.trim()
+        : undefined;
+
+    // Accept ISO or datetime-local and coerce safely
+    let pickupWhen: Date | null = null;
+    if (typeof body.pickupWhen === "string" && body.pickupWhen.trim() !== "") {
+      // datetime-local comes like "2025-10-23T19:00"
+      const raw = body.pickupWhen.trim();
+      // If missing timezone/seconds, just construct Date(raw) (interpreted in local)
+      const d = new Date(raw);
+      if (isNaN(d.getTime())) {
+        return NextResponse.json(
+          { error: "Invalid pickupWhen date format" },
+          { status: 400 }
+        );
+      }
+      pickupWhen = d;
+    }
 
     // Read cart
-    const cart = await getCart(); // our cookie-based cart
+    const cart = await getCart();
     if (!cart.lines.length) {
       return NextResponse.json({ error: "Cart is empty" }, { status: 400 });
     }
     const totals = cartTotals(cart);
 
-    // Create shortCode with collision retry (unique in DB)
+    // Short code with a couple retries
     let shortCode = generateShortCode(6);
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 3; i++) {
       const exists = await prisma.order.findUnique({ where: { shortCode } });
       if (!exists) break;
       shortCode = generateShortCode(6);
     }
 
-    // Create order + lines
-    // Create order + lines with shortCode retry on unique violation
-    let created: Awaited<ReturnType<typeof prisma.order.create>> | null = null;
+    const created = await prisma.$transaction(async (tx) => {
+      const order = await tx.order.create({
+        data: {
+          userId: user.id,
+          shortCode,
+          state: "PENDING",
+          pickupGymId: pickupGymId ?? null,
+          pickupGymName: pickupGymName ?? null,
+          pickupWhen,
+          subtotalCents: totals.subtotalCents,
+          totalCents: totals.totalCents,
+          notes: notes ?? null,
+        },
+      });
 
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        created = await prisma.$transaction(async (tx) => {
-          const shortCode = generateShortCode(6);
-
-          // 1) Create order
-          const order = await tx.order.create({
-            data: {
-              userId: user.id,
-              shortCode,
-              state: "PENDING",
-              pickupGymId: pickupGymId ?? null,
-              pickupGymName: pickupGymName ?? null,
-              pickupWhen: pickupWhen ? new Date(pickupWhen) : null,
-              subtotalCents: totals.subtotalCents,
-              totalCents: totals.totalCents,
-              notes: notes ?? null,
-            },
-          });
-
-          // 2) Insert lines (best-effort join to product for species/part)
-          for (const line of cart.lines) {
-            const prod = await tx.product.findUnique({
-              where: { id: line.productId },
-              select: { id: true, species: true, part: true },
-            });
-
-            await tx.orderLine.create({
-              data: {
-                orderId: order.id,
-                productId: prod?.id ?? line.productId,
-                productName: line.name,
-                species: (prod?.species as any) ?? "OTHER",
-                part: (prod?.part as any) ?? null,
-                variantSizeGrams: null, // fill later if you wire variants
-                unitLabel: line.unitLabel ?? null,
-                basePriceCents: line.basePriceCents,
-                optionsJson: line.options ?? [],
-                qty: line.qty,
-              } as any,
-            });
-          }
-
-          return order;
+      // Persist lines
+      for (const line of cart.lines) {
+        const prod = await tx.product.findUnique({
+          where: { id: line.productId },
+          select: { id: true, species: true, part: true },
         });
 
-        // success -> break the retry loop
-        break;
-      } catch (e: any) {
-        // Prisma unique constraint violation => shortCode collision, retry
-        if (e?.code === "P2002") continue;
-        // any other error -> rethrow
-        throw e;
+        await tx.orderLine.create({
+          data: {
+            orderId: order.id,
+            productId: prod?.id ?? line.productId,
+            productName: line.name,
+            species: (prod?.species as any) ?? "OTHER",
+            part: (prod?.part as any) ?? null,
+            variantSizeGrams: null,
+            unitLabel: line.unitLabel ?? null,
+            basePriceCents: line.basePriceCents,
+            optionsJson: line.options ?? [],
+            qty: line.qty,
+          } as any,
+        });
       }
-    }
 
-    if (!created) {
-      return NextResponse.json(
-        { error: "Could not allocate order code, please retry." },
-        { status: 500 }
-      );
-    }
+      return order;
+    });
 
-    // Clear cart cookie & return trimmed order response
+    // Clear cart & return summary
     const res = NextResponse.json({
       order: {
         id: created.id,
         shortCode: created.shortCode,
         state: created.state,
-        subtotalCents: created.subtotalCents,
         totalCents: created.totalCents,
         pickupGymName: created.pickupGymName,
-        pickupWhen: created.pickupWhen,
       },
     });
     setCart(res, { lines: [] });
     return res;
-  } catch (e) {
-    console.error("POST /api/orders failed", e);
+  } catch (e: any) {
+    // Improve server-side visibility
+    console.error("POST /api/orders failed:", e?.stack || e);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
