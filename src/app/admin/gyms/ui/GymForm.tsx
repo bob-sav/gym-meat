@@ -13,7 +13,7 @@ export default function GymForm() {
     setBusy(true);
     setMsg(null);
 
-    const r = await fetch("/api/gyms", {
+    const r = await fetch("/api/gym", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -30,7 +30,7 @@ export default function GymForm() {
       setName("");
       setAddress("");
       setNotes("");
-      window.dispatchEvent(new Event("gyms:refresh"));
+      window.dispatchEvent(new Event("gym:refresh"));
     }
     setBusy(false);
   }

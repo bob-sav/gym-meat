@@ -26,7 +26,8 @@ export default function GymsTable() {
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch("/api/gyms", { cache: "no-store" });
+      const r = await fetch("/api/gym", { cache: "no-store" });
+      // If server ever returns non-200, still try to parse safely
       const j = await r.json();
       setItems(j.items || []);
     } catch (e: any) {
@@ -39,12 +40,12 @@ export default function GymsTable() {
   useEffect(() => {
     load();
     const h = () => load();
-    window.addEventListener("gyms:refresh", h);
-    return () => window.removeEventListener("gyms:refresh", h);
+    window.addEventListener("gym:refresh", h);
+    return () => window.removeEventListener("gym:refresh", h);
   }, []);
 
   async function toggleActive(g: Gym) {
-    const r = await fetch(`/api/gyms/${g.id}`, {
+    const r = await fetch(`/api/gym/${g.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ active: !g.active }),
@@ -56,7 +57,7 @@ export default function GymsTable() {
   async function addAdmin(gymId: string) {
     const email = prompt("Admin user email:")?.trim();
     if (!email) return;
-    const r = await fetch(`/api/gyms/${gymId}/admins`, {
+    const r = await fetch(`/api/gym/${gymId}/admins`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email }),
@@ -70,7 +71,7 @@ export default function GymsTable() {
 
   async function removeAdmin(gymId: string, userId: string) {
     if (!confirm("Remove this admin?")) return;
-    const r = await fetch(`/api/gyms/${gymId}/admins/${userId}`, {
+    const r = await fetch(`/api/gym/${gymId}/admins/${userId}`, {
       method: "DELETE",
     });
     if (r.status !== 204) return alert("Remove failed");
