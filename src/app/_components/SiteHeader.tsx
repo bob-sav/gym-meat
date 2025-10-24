@@ -12,6 +12,7 @@ export default function SiteHeader() {
           GYM-Meat
         </Link>
         <Link href="/products">Products</Link>
+        <Link href="/orders">My Orders</Link>
         <div style={{ marginLeft: "auto" }}>
           <Link href="/cart" style={{ position: "relative", paddingRight: 10 }}>
             Cart

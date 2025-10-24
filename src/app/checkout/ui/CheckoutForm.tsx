@@ -11,14 +11,31 @@ export default function CheckoutForm() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
+  // 1) fetch gyms once
   useEffect(() => {
+    let alive = true;
     (async () => {
-      const r = await fetch("/api/gyms", { cache: "no-store" });
-      const j = await r.json();
-      setGyms(j.items || []);
-      if ((j.items || []).length && !pickupGymId) setPickupGymId(j.items[0].id);
+      try {
+        const r = await fetch("/api/gyms", { cache: "no-store" });
+        const j = await r.json();
+        if (!alive) return;
+        setGyms(j.items || []);
+      } catch {
+        if (!alive) return;
+        setGyms([]);
+      }
     })();
+    return () => {
+      alive = false;
+    };
   }, []);
+
+  // 2) pick a default when gyms load (but don't clobber a user choice)
+  useEffect(() => {
+    if (gyms.length && !pickupGymId) {
+      setPickupGymId(gyms[0].id);
+    }
+  }, [gyms, pickupGymId]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -41,8 +58,7 @@ export default function CheckoutForm() {
       return;
     }
 
-    // success → go to "My orders"
-    window.location.href = "/orders";
+    window.location.href = "/thank-you";
   }
 
   return (
@@ -74,7 +90,10 @@ export default function CheckoutForm() {
         />
       </label>
 
-      <button className="my_button" disabled={busy}>
+      <button
+        className="my_button"
+        disabled={busy || !pickupGymId || gyms.length === 0}
+      >
         {busy ? "Placing order…" : "Place order"}
       </button>
 

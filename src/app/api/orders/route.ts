@@ -2,17 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
 import { getCart, setCart, cartTotals } from "@/lib/cart";
 import { generateShortCode } from "@/lib/shortcode";
-import { z } from "zod";
-import { auth } from "@/auth"; // your NextAuth export
+import { auth } from "@/auth";
 
 const prisma = new PrismaClient();
-
-const createSchema = z.object({
-  pickupGymId: z.string().min(1).optional(),
-  pickupGymName: z.string().min(1).optional(),
-  pickupWhen: z.string().datetime({ offset: true }).optional(), // ISO if we get date without timezone
-  notes: z.string().max(1000).optional(),
-});
 
 export async function POST(req: NextRequest) {
   try {
@@ -164,6 +156,18 @@ export async function GET() {
       pickupGymName: true,
       pickupWhen: true,
       createdAt: true,
+      lines: {
+        select: {
+          id: true,
+          productName: true,
+          qty: true,
+          unitLabel: true,
+          basePriceCents: true,
+          species: true,
+          part: true,
+        },
+        orderBy: { id: "asc" },
+      },
     },
   });
   return NextResponse.json({ items });
