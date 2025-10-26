@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/auth";
@@ -17,8 +17,8 @@ export async function POST(
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const { id: gymId } = await ctx.params;
 
+  const { id: gymId } = await ctx.params;
   const body = await req.json().catch(() => ({}));
   const parsed = addSchema.safeParse(body);
   if (!parsed.success) {
@@ -28,24 +28,18 @@ export async function POST(
     );
   }
 
-  const u = await prisma.user.findUnique({
-    where: { email: parsed.data.email },
-    select: { id: true, email: true, name: true },
-  });
-  if (!u) {
-    return NextResponse.json(
-      { error: "User not found (they must sign up first)" },
-      { status: 404 }
-    );
+  const { email } = parsed.data;
+
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
 
-  const admin = await prisma.gymAdmin.upsert({
-    where: { gymId_userId: { gymId, userId: u.id } },
-    create: { gymId, userId: u.id },
+  const link = await prisma.gymAdmin.upsert({
+    where: { gymId_userId: { gymId, userId: user.id } },
+    create: { gymId, userId: user.id },
     update: {},
   });
 
-  return NextResponse.json({
-    admin: { id: admin.id, userId: u.id, userEmail: u.email, userName: u.name },
-  });
+  return NextResponse.json({ admin: link }, { status: 201 });
 }

@@ -15,16 +15,17 @@ datasource db {
 }
 
 model User {
-  id            String     @id @default(cuid())
+  id            String        @id @default(cuid())
   name          String?
-  email         String?    @unique
+  email         String?       @unique
   emailVerified DateTime?
   image         String?
-  passwordHash  String?    @db.Text
+  passwordHash  String?       @db.Text
   accounts      Account[]
   sessions      Session[]
   Order         Order[]
   GymAdmin      GymAdmin[]
+  ButcherAdmin  ButcherAdmin?
 }
 
 model Account {
@@ -242,4 +243,11 @@ model GymAdmin {
 
   @@unique([gymId, userId])
   @@index([userId])
+}
+
+model ButcherAdmin {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

@@ -45,6 +45,7 @@ export async function GET() {
   });
 }
 
+// POST /api/gym -> create gym (requires login)
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.email) {

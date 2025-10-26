@@ -2,19 +2,20 @@
 
 import { useEffect, useState } from "react";
 
-type AdminRow = {
-  id: string;
+type GymAdminView = {
+  id: string; // GymAdmin row id
   userId: string;
   userEmail: string | null;
   userName: string | null;
 };
+
 type Gym = {
   id: string;
   name: string;
-  address?: string | null;
-  notes?: string | null;
+  address: string | null;
+  notes: string | null;
   active: boolean;
-  admins: AdminRow[];
+  admins: GymAdminView[];
 };
 
 export default function GymsTable() {
@@ -38,15 +39,15 @@ export default function GymsTable() {
   }
 
   useEffect(() => {
+    const fn = () => load();
+    window.addEventListener("gym:refresh", fn);
     load();
-    const h = () => load();
-    window.addEventListener("gym:refresh", h);
-    return () => window.removeEventListener("gym:refresh", h);
+    return () => window.removeEventListener("gym:refresh", fn);
   }, []);
 
   async function toggleActive(g: Gym) {
     const r = await fetch(`/api/gym/${g.id}`, {
-      method: "PUT",
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ active: !g.active }),
     });
@@ -69,9 +70,9 @@ export default function GymsTable() {
     load();
   }
 
-  async function removeAdmin(gymId: string, userId: string) {
+  async function removeAdmin(gymId: string, adminId: string) {
     if (!confirm("Remove this admin?")) return;
-    const r = await fetch(`/api/gym/${gymId}/admins/${userId}`, {
+    const r = await fetch(`/api/gym/${gymId}/admins/${adminId}`, {
       method: "DELETE",
     });
     if (r.status !== 204) return alert("Remove failed");
@@ -112,24 +113,41 @@ export default function GymsTable() {
                 <button className="my_button" onClick={() => addAdmin(g.id)}>
                   Add admin
                 </button>
-                {!!g.admins.length && (
-                  <button
-                    className="my_button"
-                    onClick={() => {
-                      const pick = prompt(
-                        "Enter admin userId to remove:\n" +
-                          g.admins
-                            .map(
-                              (a) =>
-                                `${a.userId} (${a.userEmail ?? "no email"})`
-                            )
-                            .join("\n")
-                      )?.trim();
-                      if (pick) removeAdmin(g.id, pick);
+              </td>
+              <td style={{ padding: 8 }}>
+                {g.admins.length === 0 ? (
+                  <span style={{ color: "#666" }}>No admins</span>
+                ) : (
+                  <ul
+                    style={{
+                      display: "grid",
+                      gap: 6,
+                      margin: 0,
+                      paddingLeft: 16,
                     }}
                   >
-                    Remove admin
-                  </button>
+                    {g.admins.map((a) => (
+                      <li
+                        key={a.id}
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          alignItems: "center",
+                        }}
+                      >
+                        <span title={`GymAdmin ID: ${a.id}`}>
+                          {a.userEmail ?? a.userId}
+                        </span>
+                        <button
+                          className="my_button"
+                          onClick={() => removeAdmin(g.id, a.id)} // 👈 pass GymAdmin.id
+                          style={{ background: "#ec1818ff" }}
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </td>
             </tr>
