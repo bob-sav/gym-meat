@@ -23,6 +23,28 @@ type OrderStateLiteral =
   | "PICKED_UP"
   | "CANCELLED";
 
+type LineCard = {
+  kind: "line";
+  id: string; // line id
+  orderId: string; // parent order id
+  shortCode: string;
+  createdAt: string;
+  state: OrderStateLiteral;
+
+  productName: string;
+  qty: number;
+  unitLabel: string | null;
+  variantSizeGrams: number | null;
+  prepLabels: string[];
+  species: string;
+  part: string | null;
+
+  index: number;
+  count: number;
+};
+
+type OrderCard = Order;
+
 type Order = {
   id: string;
   shortCode: string;
@@ -33,6 +55,13 @@ type Order = {
   createdAt: string; // serialized ISO from API
   lines: Line[];
 };
+
+type SortKey =
+  | "createdAtDesc"
+  | "createdAtAsc"
+  | "shortCode"
+  | "species"
+  | "prep";
 
 const COLS = [
   { key: "PENDING", title: "Pending" },
@@ -55,6 +84,116 @@ export default function ButcherBoard() {
   const [loading, setLoading] = useState(true);
   const [poll, setPoll] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [explodeLines, setExplodeLines] = useState(false);
+  const [sortBy, setSortBy] = useState<SortKey>("createdAtAsc");
+  const [q, setQ] = useState(""); // quick text filter (code/species/part/product/prep)
+
+  function makeLineCards(order: Order): LineCard[] {
+    // Turn a whole order into per-line "cards"
+    return order.lines.map((l, idx) => ({
+      kind: "line" as const,
+      id: l.id,
+      orderId: order.id,
+      shortCode: order.shortCode,
+      createdAt: order.createdAt,
+      state: order.state,
+      // line details
+      productName: l.productName,
+      qty: l.qty,
+      unitLabel: l.unitLabel,
+      variantSizeGrams: l.variantSizeGrams,
+      prepLabels: Array.isArray(l.prepLabels) ? l.prepLabels : [],
+      species: l.species,
+      part: l.part,
+      index: idx + 1,
+      count: order.lines.length,
+    }));
+  }
+
+  function textMatch(hay: string, needle: string) {
+    return hay.toLowerCase().includes(needle.toLowerCase());
+  }
+
+  function passesFilter(
+    item: Order | ReturnType<typeof makeLineCards>[number],
+    query: string
+  ) {
+    if (!query.trim()) return true;
+    const terms = query.trim().split(/\s+/);
+    const haystack =
+      ("shortCode" in item ? item.shortCode : "") +
+      " " +
+      ("lines" in item
+        ? item.lines
+            .map((l) => [
+              l.productName,
+              l.species,
+              l.part ?? "",
+              (l.prepLabels ?? []).join(" "),
+            ])
+            .join(" ")
+        : [
+            item.productName,
+            item.species,
+            item.part ?? "",
+            (item.prepLabels ?? []).join(" "),
+          ].join(" "));
+    return terms.every((t) => textMatch(haystack, t));
+  }
+
+  function sortItems<
+    T extends Order | ReturnType<typeof makeLineCards>[number]
+  >(arr: T[], key: SortKey) {
+    const by = [...arr];
+    by.sort((a, b) => {
+      switch (key) {
+        case "createdAtAsc":
+          return (
+            new Date("createdAt" in a ? a.createdAt : "").getTime() -
+            new Date("createdAt" in b ? b.createdAt : "").getTime()
+          );
+        case "createdAtDesc":
+          return (
+            new Date("createdAt" in b ? b.createdAt : "").getTime() -
+            new Date("createdAt" in a ? a.createdAt : "").getTime()
+          );
+        case "shortCode": {
+          const A = "shortCode" in a ? a.shortCode : "";
+          const B = "shortCode" in b ? b.shortCode : "";
+          return A.localeCompare(B);
+        }
+        case "species": {
+          // For orders, use first line species as a proxy
+          const A = ("lines" in a ? a.lines[0]?.species : a.species) || "";
+          const B = ("lines" in b ? b.lines[0]?.species : b.species) || "";
+          return A.localeCompare(B);
+        }
+        case "prep": {
+          // Join prep labels for comparison
+          const A =
+            ("lines" in a
+              ? (a.lines[0]?.prepLabels ?? []).join(",")
+              : (a.prepLabels ?? []).join(",")) || "";
+          const B =
+            ("lines" in b
+              ? (b.lines[0]?.prepLabels ?? []).join(",")
+              : (b.prepLabels ?? []).join(",")) || "";
+          return A.localeCompare(B);
+        }
+      }
+    });
+    return by;
+  }
+
+  // Given a state key (column), return the items to render after transform/filter/sort
+  function getViewItems(
+    colKey: keyof typeof byState
+  ): (OrderCard | LineCard)[] {
+    const base = byState[colKey] as Order[];
+    const flattened = explodeLines ? base.flatMap(makeLineCards) : base;
+    const filtered = flattened.filter((it) => passesFilter(it as any, q));
+    return sortItems(filtered as any[], sortBy) as (OrderCard | LineCard)[];
+  }
 
   const load = useCallback(async () => {
     try {
@@ -116,6 +255,61 @@ export default function ButcherBoard() {
           marginBottom: 12,
         }}
       >
+        {/* Toolbar */}
+        <div
+          className="border rounded p-2 mb-3"
+          style={{
+            display: "flex",
+            gap: 12,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ fontWeight: 600 }}>View</div>
+
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input
+              type="checkbox"
+              checked={explodeLines}
+              onChange={(e) => setExplodeLines(e.target.checked)}
+            />
+            <span>Explode orders (per line)</span>
+          </label>
+
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span>Sort</span>
+            <select
+              className="border rounded p-1"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortKey)}
+            >
+              <option value="createdAtAsc">Oldest first</option>
+              <option value="createdAtDesc">Newest first</option>
+              <option value="shortCode">By Code</option>
+              <option value="species">By Species</option>
+              <option value="prep">By Prep</option>
+            </select>
+          </label>
+
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              flex: 1,
+              minWidth: 200,
+            }}
+          >
+            <span>Filter</span>
+            <input
+              className="border rounded p-1 w-full"
+              placeholder="code/species/part/product/prep…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </label>
+        </div>
+
         <h1 style={{ fontSize: 24 }}>Butcher board</h1>
         <button className="my_button" onClick={load}>
           Refresh
@@ -153,167 +347,114 @@ export default function ButcherBoard() {
               <div style={{ color: "#666" }}>No orders</div>
             ) : (
               <div style={{ display: "grid", gap: 8 }}>
-                {byState[col.key].map((o) => (
-                  <article key={o.id} className="border p-2 rounded">
-                    {/* Header: code + placed-at + (optional) pickup gym */}
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: 8,
-                        alignItems: "baseline",
-                      }}
-                    >
-                      <div>
-                        <b>#{o.shortCode}</b>
-                        {o.pickupGymName ? (
-                          <span
-                            style={{
-                              marginLeft: 8,
-                              color: "#666",
-                              fontSize: 12,
-                            }}
-                          >
-                            · {o.pickupGymName}
-                          </span>
-                        ) : null}
-                      </div>
-                      <div style={{ color: "#666", fontSize: 12 }}>
-                        {new Date(o.createdAt).toLocaleString()}
-                      </div>
-                    </div>
+                {getViewItems(col.key).map((item: any) => {
+                  const isLine = item.kind === "line";
+                  const cardKey = isLine ? item.id : item.id;
+                  const code = isLine ? item.shortCode : item.shortCode;
+                  const created = new Date(
+                    isLine ? item.createdAt : item.createdAt
+                  ).toLocaleString();
 
-                    {/* Lines */}
-                    <ul
-                      style={{
-                        margin: "8px 0",
-                        paddingLeft: 16,
-                        display: "grid",
-                        gap: 6,
-                      }}
-                    >
-                      {o.lines.map((l) => {
-                        const partPretty = l.part
-                          ? String(l.part).replace(/_/g, " ")
-                          : null;
-                        return (
-                          <li key={l.id} style={{ listStyle: "disc" }}>
-                            <div
+                  return (
+                    <article key={cardKey} className="border p-2 rounded">
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 8,
+                        }}
+                      >
+                        <div>
+                          <b>#{code}</b>
+                          {isLine && (
+                            <span
                               style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                gap: 8,
+                                marginLeft: 8,
+                                fontSize: 12,
+                                color: "#666",
                               }}
                             >
-                              <div>
-                                <b>
-                                  {l.qty}× {l.productName}
-                                </b>
-                                {l.unitLabel ? (
-                                  <span> · {l.unitLabel}</span>
-                                ) : null}
-                              </div>
-                              <div style={{ fontSize: 12, color: "#555" }}>
-                                {/* quick chips: species / part / variant */}
-                                <span
-                                  style={{
-                                    border: "1px solid #e5e7eb",
-                                    borderRadius: 6,
-                                    padding: "2px 6px",
-                                    marginLeft: 6,
-                                    whiteSpace: "nowrap",
-                                  }}
-                                >
-                                  {l.species}
-                                </span>
-                                {partPretty ? (
-                                  <span
-                                    style={{
-                                      border: "1px solid #e5e7eb",
-                                      borderRadius: 6,
-                                      padding: "2px 6px",
-                                      marginLeft: 6,
-                                      whiteSpace: "nowrap",
-                                    }}
-                                  >
-                                    {partPretty}
-                                  </span>
-                                ) : null}
-                                {typeof l.variantSizeGrams === "number" ? (
-                                  <span
-                                    style={{
-                                      border: "1px solid #e5e7eb",
-                                      borderRadius: 6,
-                                      padding: "2px 6px",
-                                      marginLeft: 6,
-                                      whiteSpace: "nowrap",
-                                    }}
-                                  >
-                                    {l.variantSizeGrams}g
-                                  </span>
-                                ) : null}
-                              </div>
-                            </div>
-
-                            {/* Prep labels (cut/cleaning, etc.) */}
-                            {Array.isArray(l.prepLabels) &&
-                            l.prepLabels.length > 0 ? (
-                              <div
-                                style={{
-                                  display: "flex",
-                                  gap: 6,
-                                  flexWrap: "wrap",
-                                  marginTop: 6,
-                                }}
-                              >
-                                {l.prepLabels.map((lab: string, i: number) => (
-                                  <span
-                                    key={i}
-                                    style={{
-                                      fontSize: 12,
-                                      border: "1px dashed #cbd5e1",
-                                      borderRadius: 6,
-                                      padding: "2px 6px",
-                                      background: "#f8fafc",
-                                    }}
-                                  >
-                                    {lab}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : null}
-                          </li>
-                        );
-                      })}
-                    </ul>
-
-                    {/* Footer: quick totals + actions */}
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: 8,
-                        marginTop: 6,
-                      }}
-                    >
-                      <div style={{ fontSize: 12, color: "#666" }}>
-                        Items:{" "}
-                        {o.lines.reduce(
-                          (s: number, l: any) => s + (l.qty || 0),
-                          0
-                        )}{" "}
-                        · Total: <b>{(o.totalCents / 100).toFixed(2)} €</b>
+                              ({item.index} of {item.count})
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ color: "#666", fontSize: 12 }}>
+                          {created}
+                        </div>
                       </div>
 
+                      {/* Body */}
+                      {isLine ? (
+                        <>
+                          <div style={{ marginTop: 6 }}>
+                            {item.qty}× {item.productName}
+                            {item.unitLabel ? ` · ${item.unitLabel}` : ""}
+                            {typeof item.variantSizeGrams === "number"
+                              ? ` · ${item.variantSizeGrams}g`
+                              : ""}
+                          </div>
+                          <div
+                            style={{
+                              marginTop: 4,
+                              fontSize: 12,
+                              color: "#444",
+                            }}
+                          >
+                            {item.species} {item.part ? `· ${item.part}` : ""}
+                          </div>
+                          {Array.isArray(item.prepLabels) &&
+                            item.prepLabels.length > 0 && (
+                              <div
+                                style={{
+                                  marginTop: 6,
+                                  display: "flex",
+                                  flexWrap: "wrap",
+                                  gap: 6,
+                                }}
+                              >
+                                {item.prepLabels.map(
+                                  (lab: string, i: number) => (
+                                    <span
+                                      key={i}
+                                      className="border rounded px-2 py-1"
+                                      style={{ fontSize: 12 }}
+                                    >
+                                      {lab}
+                                    </span>
+                                  )
+                                )}
+                              </div>
+                            )}
+                        </>
+                      ) : (
+                        <>
+                          <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
+                            {item.lines.map((l: Line) => (
+                              <li key={l.id}>
+                                {l.qty}× {l.productName}
+                                {l.unitLabel ? ` · ${l.unitLabel}` : ""}
+                                {typeof l.variantSizeGrams === "number"
+                                  ? ` · ${l.variantSizeGrams}g`
+                                  : ""}
+                                {Array.isArray(l.prepLabels) &&
+                                  l.prepLabels.length > 0 && (
+                                    <span> · {l.prepLabels.join(", ")}</span>
+                                  )}
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+
+                      {/* Actions */}
                       <div
                         style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
                       >
-                        {NEXT[o.state].map((ns: any) => (
+                        {NEXT[item.state].map((ns: Order["state"]) => (
                           <button
                             key={ns}
                             className="my_button"
-                            onClick={() => move(o.id, ns)}
+                            onClick={() => move(item.id, ns)}
                           >
                             {ns === "PREPARING" && "Mark Preparing"}
                             {ns === "READY_FOR_DELIVERY" && "Mark Ready"}
@@ -322,9 +463,9 @@ export default function ButcherBoard() {
                           </button>
                         ))}
                       </div>
-                    </div>
-                  </article>
-                ))}
+                    </article>
+                  );
+                })}
               </div>
             )}
           </section>
