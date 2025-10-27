@@ -1,7 +1,15 @@
-// src/app/gym-admin/page.tsx
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+
+type OrderState =
+  | "PENDING"
+  | "PREPARING"
+  | "READY_FOR_DELIVERY"
+  | "IN_TRANSIT"
+  | "AT_GYM"
+  | "PICKED_UP"
+  | "CANCELLED";
 
 type Line = {
   id: string;
@@ -11,53 +19,51 @@ type Line = {
   basePriceCents: number;
   species: string;
   part: string | null;
+  variantSizeGrams: number | null;
+  optionsJson?: any;
 };
 
 type Order = {
   id: string;
   shortCode: string;
-  state:
-    | "IN_TRANSIT"
-    | "AT_GYM"
-    | "PICKED_UP"
-    | "CANCELLED"
-    | "PENDING"
-    | "PREPARING"
-    | "READY_FOR_DELIVERY";
+  state: OrderState;
   totalCents: number;
   pickupGymName: string | null;
   pickupWhen: string | null;
   createdAt: string;
-  user?: { name: string | null; email: string | null };
   lines: Line[];
 };
 
-const CAN_DO = {
-  IN_TRANSIT: ["AT_GYM"], // can mark arrival
-  AT_GYM: ["PICKED_UP", "CANCELLED"], // can close out
-} as const;
+const COLS: { key: OrderState; title: string }[] = [
+  { key: "IN_TRANSIT", title: "On the Way" },
+  { key: "AT_GYM", title: "At Gym" },
+];
 
 export default function GymAdminPage() {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [stateFilter, setStateFilter] = useState<string>(""); // "", IN_TRANSIT, AT_GYM, PICKED_UP, CANCELLED
-  const [poll, setPoll] = useState<boolean>(true);
+
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [poll, setPoll] = useState(true);
+  const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
-    setLoading(true);
-    setErr(null);
     try {
-      const qs = stateFilter ? `?state=${encodeURIComponent(stateFilter)}` : "";
+      setLoading(true);
+      setErr(null);
+
+      const qs = showCompleted ? "?state=PICKED_UP" : "";
       const r = await fetch(`/api/gym/orders${qs}`, { cache: "no-store" });
+      if (!r.ok) throw new Error(r.statusText);
       const j = await r.json();
-      setOrders(j.items ?? []);
+      setItems(j.items || []);
     } catch (e: any) {
       setErr(e?.message ?? String(e));
     } finally {
       setLoading(false);
     }
-  }, [stateFilter]);
+  }, [showCompleted]);
 
   useEffect(() => {
     load();
@@ -65,246 +71,230 @@ export default function GymAdminPage() {
 
   useEffect(() => {
     if (!poll) return;
-    const id = setInterval(() => load(), 10_000);
-    return () => clearInterval(id);
+    const t = setInterval(load, 10_000);
+    return () => clearInterval(t);
   }, [poll, load]);
+
+  const filtered = useMemo(() => {
+    let arr = items.slice();
+    if (search) {
+      const s = search.toLowerCase();
+      arr = arr.filter(
+        (o) =>
+          o.shortCode.includes(s) ||
+          o.lines.some((l) => l.productName.toLowerCase().includes(s))
+      );
+    }
+    return arr;
+  }, [items, search]);
+
+  const byState = useMemo(() => {
+    const groups: Record<OrderState, Order[]> = {
+      PENDING: [],
+      PREPARING: [],
+      READY_FOR_DELIVERY: [],
+      IN_TRANSIT: [],
+      AT_GYM: [],
+      PICKED_UP: [],
+      CANCELLED: [],
+    };
+    for (const o of filtered) groups[o.state].push(o);
+    return groups;
+  }, [filtered]);
 
   async function move(
     orderId: string,
-    next: "IN_TRANSIT" | "AT_GYM" | "PICKED_UP" | "CANCELLED"
+    next: "AT_GYM" | "PICKED_UP" | "CANCELLED"
   ) {
-    const r = await fetch(`/api/gym/orders/${orderId}/state`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state: next }),
-    });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      alert(j?.error ?? r.statusText);
-      return;
+    try {
+      const r = await fetch(`/api/gym/orders/${orderId}/state`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ state: next }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        alert(j?.error ?? r.statusText);
+        return;
+      }
+      await load();
+    } catch (e: any) {
+      alert(e?.message ?? String(e));
     }
-    await load();
   }
 
-  const grouped = useMemo(() => {
-    const g = new Map<string, Order[]>();
-    for (const o of orders) {
-      const k = o.state;
-      if (!g.has(k)) g.set(k, []);
-      g.get(k)!.push(o);
-    }
-    return g;
-  }, [orders]);
-
   return (
-    <main style={{ maxWidth: 1100, margin: "2rem auto", padding: 16 }}>
-      <h1 style={{ fontSize: 24, marginBottom: 12 }}>Gym Admin — Orders</h1>
+    <main style={{ maxWidth: 1200, margin: "2rem auto", padding: 16 }}>
+      <h1 style={{ fontSize: 24, marginBottom: 12 }}>Gym Admin · Orders</h1>
 
+      {/* Toolbar */}
       <div
         style={{
           display: "flex",
           gap: 12,
+          flexWrap: "wrap",
           alignItems: "center",
           marginBottom: 12,
         }}
       >
-        <label>
-          <span style={{ marginRight: 6 }}>Filter:</span>
-          <select
-            className="border p-2 rounded"
-            value={stateFilter}
-            onChange={(e) => setStateFilter(e.target.value)}
-          >
-            <option value="">All</option>
-            <option>IN_TRANSIT</option>
-            <option>AT_GYM</option>
-            <option>PICKED_UP</option>
-            <option>CANCELLED</option>
-          </select>
+        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input
+            type="checkbox"
+            checked={showCompleted}
+            onChange={(e) => setShowCompleted(e.target.checked)}
+          />
+          Show Completed
         </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+
+        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <input
             type="checkbox"
             checked={poll}
             onChange={(e) => setPoll(e.target.checked)}
           />
-          <span>Auto-refresh (10s)</span>
+          Auto-refresh
         </label>
+
+        <input
+          placeholder="Search code / product"
+          className="border p-2 rounded"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ minWidth: 260 }}
+        />
+
         <button className="my_button" onClick={load}>
           Refresh
         </button>
       </div>
 
-      {loading && <div>Loading…</div>}
       {err && <div style={{ color: "crimson" }}>Error: {err}</div>}
-      {!loading && !orders.length && <div>No orders found.</div>}
+      {loading && <div>Loading…</div>}
 
-      {/* Column layout: left = active states, right = closed */}
-      {!!orders.length && (
+      {/* Two main columns */}
+      {!showCompleted ? (
         <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}
+          style={{
+            display: "grid",
+            gap: 12,
+            gridTemplateColumns: "repeat(2, minmax(0,1fr))",
+          }}
         >
-          <section>
-            <h2 style={{ fontSize: 18, marginBottom: 8 }}>Active</h2>
-            {["IN_TRANSIT", "AT_GYM"].map((st) => (
-              <div key={st} style={{ marginBottom: 16 }}>
-                <div style={{ fontWeight: 600, marginBottom: 8 }}>{st}</div>
-                <div style={{ display: "grid", gap: 10 }}>
-                  {(grouped.get(st) ?? []).map((o) => (
-                    <div key={o.id} className="border p-3 rounded">
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                        }}
-                      >
-                        <div>
-                          <div>
-                            <b>Code:</b>{" "}
-                            <span style={{ fontFamily: "monospace" }}>
-                              {o.shortCode}
-                            </span>
-                          </div>
-                          <div style={{ color: "#666", fontSize: 12 }}>
-                            Placed {new Date(o.createdAt).toLocaleString()}
-                          </div>
-                          {o.pickupWhen && (
-                            <div style={{ color: "#666", fontSize: 12 }}>
-                              Arrived {new Date(o.pickupWhen).toLocaleString()}
-                            </div>
-                          )}
-                        </div>
-                        <div style={{ textAlign: "right" }}>
-                          <div>
-                            <b>Total:</b> {(o.totalCents / 100).toFixed(2)} €
-                          </div>
-                          <div style={{ color: "#666" }}>
-                            {o.pickupGymName ?? "—"}
-                          </div>
-                        </div>
-                      </div>
+          {COLS.map((col) => (
+            <section key={col.key} className="border rounded p-2">
+              <h2 style={{ fontSize: 18, marginBottom: 8 }}>
+                {col.title}{" "}
+                <span style={{ color: "#666" }}>
+                  ({byState[col.key].length})
+                </span>
+              </h2>
 
-                      <div style={{ marginTop: 8, fontSize: 14 }}>
-                        {o.lines.map((l) => (
-                          <div
-                            key={l.id}
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                            }}
-                          >
-                            <span>
-                              {l.qty}× {l.productName}
-                              {l.unitLabel ? ` · ${l.unitLabel}` : ""}
-                            </span>
-                            <span>
-                              {((l.basePriceCents * l.qty) / 100).toFixed(2)} €
-                            </span>
-                          </div>
-                        ))}
+              <div style={{ display: "grid", gap: 8 }}>
+                {byState[col.key].map((o) => (
+                  <article key={o.id} className="border p-2 rounded">
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 8,
+                      }}
+                    >
+                      <div>
+                        <b>#{o.shortCode}</b>{" "}
+                        <span style={{ color: "#666" }}>
+                          · {o.pickupGymName ?? "—"}
+                        </span>
                       </div>
+                      <div style={{ color: "#666", fontSize: 12 }}>
+                        {new Date(o.createdAt).toLocaleString()}
+                      </div>
+                    </div>
 
-                      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                        {o.state === "IN_TRANSIT" && (
+                    <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
+                      {o.lines.map((l) => (
+                        <li key={l.id}>
+                          {l.qty}× {l.productName}
+                          {l.unitLabel ? ` · ${l.unitLabel}` : ""}
+                          {l.variantSizeGrams
+                            ? ` · ${l.variantSizeGrams}g`
+                            : ""}
+                          {l.part ? ` · ${l.part}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {o.state === "IN_TRANSIT" && (
+                        <button
+                          className="my_button"
+                          onClick={() => move(o.id, "AT_GYM")}
+                        >
+                          Mark Arrived
+                        </button>
+                      )}
+                      {o.state === "AT_GYM" && (
+                        <>
                           <button
                             className="my_button"
-                            onClick={() => move(o.id, "AT_GYM")}
+                            onClick={() => move(o.id, "PICKED_UP")}
                           >
-                            Mark AT_GYM
+                            Picked Up
                           </button>
-                        )}
-                        {o.state === "AT_GYM" && (
-                          <>
-                            <button
-                              className="my_button"
-                              onClick={() => move(o.id, "PICKED_UP")}
-                            >
-                              Mark PICKED_UP
-                            </button>
-                            <button
-                              className="my_button"
-                              style={{ background: "#ec1818ff" }}
-                              onClick={() => {
-                                if (confirm("Cancel this order?"))
-                                  move(o.id, "CANCELLED");
-                              }}
-                            >
-                              Cancel
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </section>
-
-          <section>
-            <h2 style={{ fontSize: 18, marginBottom: 8 }}>Closed</h2>
-            {["PICKED_UP", "CANCELLED"].map((st) => (
-              <div key={st} style={{ marginBottom: 16 }}>
-                <div style={{ fontWeight: 600, marginBottom: 8 }}>{st}</div>
-                <div style={{ display: "grid", gap: 10 }}>
-                  {(grouped.get(st) ?? []).map((o) => (
-                    <div
-                      key={o.id}
-                      className="border p-3 rounded"
-                      style={{ opacity: 0.9 }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                        }}
-                      >
-                        <div>
-                          <div>
-                            <b>Code:</b>{" "}
-                            <span style={{ fontFamily: "monospace" }}>
-                              {o.shortCode}
-                            </span>
-                          </div>
-                          <div style={{ color: "#666", fontSize: 12 }}>
-                            Placed {new Date(o.createdAt).toLocaleString()}
-                          </div>
-                        </div>
-                        <div style={{ textAlign: "right" }}>
-                          <div>
-                            <b>Total:</b> {(o.totalCents / 100).toFixed(2)} €
-                          </div>
-                          <div style={{ color: "#666" }}>
-                            {o.pickupGymName ?? "—"}
-                          </div>
-                        </div>
-                      </div>
-                      <div style={{ marginTop: 8, fontSize: 14 }}>
-                        {o.lines.map((l) => (
-                          <div
-                            key={l.id}
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                            }}
+                          <button
+                            className="my_button"
+                            onClick={() => move(o.id, "CANCELLED")}
                           >
-                            <span>
-                              {l.qty}× {l.productName}
-                              {l.unitLabel ? ` · ${l.unitLabel}` : ""}
-                            </span>
-                            <span>
-                              {((l.basePriceCents * l.qty) / 100).toFixed(2)} €
-                            </span>
-                          </div>
-                        ))}
-                      </div>
+                            Cancel
+                          </button>
+                        </>
+                      )}
                     </div>
-                  ))}
-                </div>
+                  </article>
+                ))}
               </div>
-            ))}
-          </section>
+            </section>
+          ))}
         </div>
+      ) : (
+        // Completed list
+        <section className="border rounded p-2">
+          <h2 style={{ fontSize: 18, marginBottom: 8 }}>
+            Completed (Picked Up)
+          </h2>
+          <div style={{ display: "grid", gap: 8 }}>
+            {byState.PICKED_UP.map((o) => (
+              <article key={o.id} className="border p-2 rounded">
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 8,
+                  }}
+                >
+                  <div>
+                    <b>#{o.shortCode}</b>{" "}
+                    <span style={{ color: "#666" }}>
+                      · {o.pickupGymName ?? "—"}
+                    </span>
+                  </div>
+                  <div style={{ color: "#666", fontSize: 12 }}>
+                    {new Date(o.createdAt).toLocaleString()}
+                  </div>
+                </div>
+                <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
+                  {o.lines.map((l) => (
+                    <li key={l.id}>
+                      {l.qty}× {l.productName}
+                      {l.unitLabel ? ` · ${l.unitLabel}` : ""}
+                      {l.variantSizeGrams ? ` · ${l.variantSizeGrams}g` : ""}
+                      {l.part ? ` · ${l.part}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            ))}
+          </div>
+        </section>
       )}
     </main>
   );
