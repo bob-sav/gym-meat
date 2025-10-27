@@ -1,16 +1,29 @@
+// src/app/api/butcher/lines/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient, OrderState } from "@prisma/client";
+import { PrismaClient, LineState, OrderState } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { isButcher } from "@/lib/butcher-auth";
 
+export const dynamic = "force-dynamic";
+
 const prisma = new PrismaClient();
 
 const querySchema = z.object({
-  state: z.enum(["PENDING", "PREPARING", "READY", "SENT"]).optional(),
+  lineState: z.enum(["PENDING", "PREPARING", "READY", "SENT"]).optional(),
+  // optional: let butchers filter by overall order state too (e.g., hide AT_GYM/PICKED_UP)
+  orderState: z
+    .enum([
+      "PENDING",
+      "PREPARING",
+      "READY_FOR_DELIVERY",
+      "IN_TRANSIT",
+      "AT_GYM",
+      "PICKED_UP",
+      "CANCELLED",
+    ])
+    .optional(),
 });
-
-export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -23,7 +36,8 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const parsed = querySchema.safeParse({
-    state: searchParams.get("state") ?? undefined,
+    lineState: searchParams.get("lineState") ?? undefined,
+    orderState: searchParams.get("orderState") ?? undefined,
   });
   if (!parsed.success) {
     return NextResponse.json(
@@ -32,90 +46,103 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const lineStateFilter = parsed.data.state;
+  const { lineState, orderState } = parsed.data;
 
-  // Pull orders still in the butcher domain
-  const ORDERS_SCOPE: OrderState[] = [
-    "PENDING",
-    "PREPARING",
-    "READY_FOR_DELIVERY",
-    "IN_TRANSIT", // optional: you can drop this if you want SENT to disappear when order moves out
-  ];
+  const where: any = {};
+  if (lineState) where.lineState = lineState as LineState;
+  if (orderState) where.order = { state: orderState as OrderState };
 
-  const orders = await prisma.order.findMany({
-    where: { state: { in: ORDERS_SCOPE } },
-    orderBy: { createdAt: "asc" },
+  const rows = await prisma.orderLine.findMany({
+    where,
+    orderBy: [
+      { order: { createdAt: "asc" } }, // FIFO by order time
+      { id: "asc" }, // stable secondary sort
+    ],
     select: {
       id: true,
-      shortCode: true,
-      pickupGymName: true,
-      createdAt: true,
-      lines: {
-        orderBy: { id: "asc" },
+      orderId: true,
+      productName: true,
+      qty: true,
+      unitLabel: true,
+      basePriceCents: true,
+      species: true,
+      part: true,
+      variantSizeGrams: true,
+      lineState: true,
+      optionsJson: true,
+      order: {
         select: {
           id: true,
-          productName: true,
-          qty: true,
-          unitLabel: true,
-          basePriceCents: true,
-          species: true,
-          part: true,
-          variantSizeGrams: true,
-          prepLabels: true, // Json[] -> string[]
-          lineState: true,
+          shortCode: true,
+          state: true,
+          pickupGymName: true,
+          createdAt: true,
         },
       },
     },
   });
 
-  // Flatten lines and compute index like "2 of 5"
-  const items: Array<{
-    id: string; // lineId
+  type ButcherLineItem = {
+    id: string;
     orderId: string;
     shortCode: string;
-    createdAt: string;
+    orderState: OrderState;
+    createdAt: Date;
     pickupGymName: string | null;
 
-    // line details
     productName: string;
     qty: number;
     unitLabel: string | null;
-    basePriceCents: number;
+    variantSizeGrams: number | null;
     species: string;
     part: string | null;
-    variantSizeGrams: number | null;
+    basePriceCents: number;
+
+    lineState: LineState;
     prepLabels: string[];
+    indexOf: { i: number; n: number };
+  };
 
-    lineState: "PENDING" | "PREPARING" | "READY" | "SENT";
-    indexOf: { i: number; n: number }; // e.g., {i:2,n:5}
-  }> = [];
+  const items: ButcherLineItem[] = rows.map((l) => {
+    const opts = Array.isArray(l.optionsJson) ? l.optionsJson : [];
+    const prepLabels = opts
+      .map((o: any) => o?.label)
+      .filter(
+        (x: unknown): x is string => typeof x === "string" && x.length > 0
+      );
 
-  for (const o of orders) {
-    const n = o.lines.length;
-    o.lines.forEach((l, idx) => {
-      if (lineStateFilter && l.lineState !== lineStateFilter) return;
-      items.push({
-        id: l.id,
-        orderId: o.id,
-        shortCode: o.shortCode,
-        createdAt: o.createdAt.toISOString(),
-        pickupGymName: o.pickupGymName ?? null,
+    return {
+      id: l.id,
+      orderId: l.orderId,
+      shortCode: l.order.shortCode,
+      orderState: l.order.state,
+      createdAt: l.order.createdAt,
+      pickupGymName: l.order.pickupGymName ?? null,
 
-        productName: l.productName,
-        qty: l.qty,
-        unitLabel: l.unitLabel,
-        basePriceCents: l.basePriceCents,
-        species: l.species as string,
-        part: l.part as string | null,
-        variantSizeGrams: l.variantSizeGrams,
-        prepLabels: Array.isArray(l.prepLabels)
-          ? (l.prepLabels as string[])
-          : [],
+      productName: l.productName,
+      qty: l.qty,
+      unitLabel: l.unitLabel,
+      variantSizeGrams: l.variantSizeGrams ?? null,
+      species: l.species,
+      part: l.part ?? null,
+      basePriceCents: l.basePriceCents,
 
-        lineState: l.lineState as any,
-        indexOf: { i: idx + 1, n },
-      });
-    });
+      lineState: l.lineState,
+      prepLabels,
+      indexOf: { i: 1, n: 1 }, // placeholder; will be overwritten below
+    };
+  });
+
+  // Assign indexOf per order (1..n)
+  const byOrder = new Map<string, number>();
+  const counts = new Map<string, number>();
+  for (const it of items) {
+    counts.set(it.orderId, (counts.get(it.orderId) ?? 0) + 1);
+  }
+  for (const it of items) {
+    const nextI = (byOrder.get(it.orderId) ?? 0) + 1;
+    byOrder.set(it.orderId, nextI);
+    it.indexOf = { i: nextI, n: counts.get(it.orderId)! };
   }
 
   return NextResponse.json({ items });

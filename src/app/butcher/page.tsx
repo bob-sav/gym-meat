@@ -21,7 +21,7 @@ type LineItem = {
   prepLabels: string[];
 
   lineState: LineState;
-  indexOf: { i: number; n: number };
+  indexOf?: { i: number; n: number };
 };
 
 const COLS: { key: LineState; title: string }[] = [
@@ -54,11 +54,21 @@ export default function ButcherBoard() {
     try {
       setErr(null);
       setLoading(true);
-      // We can filter by state server-side if you want; for now pull everything and filter client-side
       const r = await fetch("/api/butcher/lines", { cache: "no-store" });
       if (!r.ok) throw new Error(r.statusText);
       const j = await r.json();
-      setItems(j.items || []);
+
+      const normalized = (j.items || []).map((li: any) => {
+        const idx =
+          li?.indexOf &&
+          typeof li.indexOf.i === "number" &&
+          typeof li.indexOf.n === "number"
+            ? li.indexOf
+            : { i: 1, n: 1 };
+        return { ...li, indexOf: idx };
+      });
+
+      setItems(normalized);
     } catch (e: any) {
       setErr(e?.message ?? String(e));
     } finally {
@@ -77,16 +87,17 @@ export default function ButcherBoard() {
   }, [poll]);
 
   // Derived maps for quick checks
-  const orderAllReady = useMemo(() => {
+  const orderSendable = useMemo(() => {
     const m = new Map<string, boolean>();
     const grouped = items.reduce<Record<string, LineItem[]>>((acc, li) => {
       (acc[li.orderId] ||= []).push(li);
       return acc;
     }, {});
     for (const [oid, arr] of Object.entries(grouped)) {
+      // Sendable if no item is still PENDING or PREPARING
       m.set(
         oid,
-        arr.every((l) => l.lineState === "READY")
+        arr.every((l) => l.lineState === "READY" || l.lineState === "SENT")
       );
     }
     return m;
@@ -122,7 +133,7 @@ export default function ButcherBoard() {
 
   async function move(lineId: string, next: LineState) {
     try {
-      const r = await fetch(`/api/butcher/orders/lines/${lineId}/state`, {
+      const r = await fetch(`/api/butcher/lines/${lineId}/state`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ state: next }),
@@ -222,7 +233,7 @@ export default function ButcherBoard() {
               {byState[col.key].map((li) => {
                 const canSendOut =
                   li.lineState === "READY" &&
-                  (orderAllReady.get(li.orderId) ?? false);
+                  (orderSendable.get(li.orderId) ?? false);
 
                 return (
                   <article key={li.id} className="border p-2 rounded">
@@ -236,7 +247,7 @@ export default function ButcherBoard() {
                       <div>
                         <b>#{li.shortCode}</b>{" "}
                         <span style={{ color: "#666" }}>
-                          ({li.indexOf.i} of {li.indexOf.n})
+                          ({li.indexOf?.i ?? 1} of {li.indexOf?.n ?? 1})
                         </span>
                       </div>
                       <div style={{ color: "#666", fontSize: 12 }}>
