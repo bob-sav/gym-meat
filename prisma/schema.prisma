@@ -178,6 +178,7 @@ enum LineState {
   PENDING
   PREPARING
   READY
+  SENT
 }
 
 model Order {

@@ -1,12 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-/** ---- Types that match the /api/butcher/orders response ---- */
-type LineState = "PENDING" | "PREPARING" | "READY";
+type LineState = "PENDING" | "PREPARING" | "READY" | "SENT";
 
-type Line = {
-  id: string;
+type LineItem = {
+  id: string; // lineId
+  orderId: string;
+  shortCode: string;
+  createdAt: string;
+  pickupGymName: string | null;
+
   productName: string;
   qty: number;
   unitLabel: string | null;
@@ -15,232 +19,213 @@ type Line = {
   part: string | null;
   variantSizeGrams: number | null;
   prepLabels: string[];
+
   lineState: LineState;
+  indexOf: { i: number; n: number };
 };
 
-type OrderStateLiteral =
-  | "PENDING"
-  | "PREPARING"
-  | "READY_FOR_DELIVERY"
-  | "IN_TRANSIT"
-  | "AT_GYM"
-  | "PICKED_UP"
-  | "CANCELLED";
+const COLS: { key: LineState; title: string }[] = [
+  { key: "PENDING", title: "Pending" },
+  { key: "PREPARING", title: "Preparing" },
+  { key: "READY", title: "Ready" },
+  { key: "SENT", title: "Sent" },
+];
 
-type Order = {
-  id: string;
-  shortCode: string;
-  state: OrderStateLiteral;
-  totalCents: number;
-  pickupGymName: string | null;
-  pickupWhen: string | null;
-  createdAt: string;
-  lines: Line[];
+// single-step transitions
+const NEXT: Record<LineState, LineState[]> = {
+  PENDING: ["PREPARING"],
+  PREPARING: ["READY", "PENDING"],
+  READY: ["PREPARING", "SENT"],
+  SENT: ["READY"],
 };
-
-/** Order-level transitions the *butcher* may trigger */
-const ORDER_NEXT: Record<OrderStateLiteral, OrderStateLiteral[]> = {
-  PENDING: ["PREPARING", "CANCELLED"],
-  PREPARING: ["READY_FOR_DELIVERY", "CANCELLED"],
-  READY_FOR_DELIVERY: ["IN_TRANSIT", "CANCELLED"],
-  IN_TRANSIT: [], // gym-admin continues from here
-  AT_GYM: [],
-  PICKED_UP: [],
-  CANCELLED: [],
-};
-
-/** A small label helper */
-function stateLabel(s: OrderStateLiteral) {
-  switch (s) {
-    case "PENDING":
-      return "Pending";
-    case "PREPARING":
-      return "Preparing";
-    case "READY_FOR_DELIVERY":
-      return "Ready";
-    case "IN_TRANSIT":
-      return "In transit";
-    case "AT_GYM":
-      return "At gym";
-    case "PICKED_UP":
-      return "Picked up";
-    case "CANCELLED":
-      return "Cancelled";
-    default:
-      return s;
-  }
-}
 
 export default function ButcherBoard() {
-  /** ---- UI state ---- */
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [items, setItems] = useState<LineItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const [stateFilter, setStateFilter] = useState<"ALL" | OrderStateLiteral>(
-    "ALL"
-  );
-  const [explode, setExplode] = useState(false);
-  const [poll, setPoll] = useState(false);
+  // Toolbar state
+  const [showSent, setShowSent] = useState(false);
+  const [poll, setPoll] = useState(true);
+  const [speciesFilter, setSpeciesFilter] = useState<string>("");
+  const [search, setSearch] = useState("");
 
-  /** ---- Data loader ---- */
-  const load = useCallback(async () => {
+  async function load() {
     try {
       setErr(null);
       setLoading(true);
-      const qs =
-        stateFilter === "ALL"
-          ? ""
-          : `?state=${encodeURIComponent(stateFilter)}`;
-      const r = await fetch(`/api/butcher/orders${qs}`, { cache: "no-store" });
+      // We can filter by state server-side if you want; for now pull everything and filter client-side
+      const r = await fetch("/api/butcher/lines", { cache: "no-store" });
       if (!r.ok) throw new Error(r.statusText);
       const j = await r.json();
-      setOrders(j.items || []);
+      setItems(j.items || []);
     } catch (e: any) {
       setErr(e?.message ?? String(e));
     } finally {
       setLoading(false);
     }
-  }, [stateFilter]);
+  }
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, []);
 
   useEffect(() => {
     if (!poll) return;
     const t = setInterval(load, 10_000);
     return () => clearInterval(t);
-  }, [poll, load]);
+  }, [poll]);
 
-  /** ---- Actions ---- */
-  async function moveOrder(orderId: string, next: OrderStateLiteral) {
-    const r = await fetch(`/api/butcher/orders/${orderId}/state`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state: next }),
-    });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      alert(j?.error ?? r.statusText);
-      return;
+  // Derived maps for quick checks
+  const orderAllReady = useMemo(() => {
+    const m = new Map<string, boolean>();
+    const grouped = items.reduce<Record<string, LineItem[]>>((acc, li) => {
+      (acc[li.orderId] ||= []).push(li);
+      return acc;
+    }, {});
+    for (const [oid, arr] of Object.entries(grouped)) {
+      m.set(
+        oid,
+        arr.every((l) => l.lineState === "READY")
+      );
     }
-    load();
-  }
+    return m;
+  }, [items]);
 
-  async function moveLine(lineId: string, next: LineState) {
-    const r = await fetch(`/api/butcher/orders/lines/${lineId}/state`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state: next }),
-    });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      alert(j?.error ?? r.statusText);
-      return;
+  // Filters
+  const filtered = useMemo(() => {
+    let arr = items.slice();
+    if (!showSent) arr = arr.filter((l) => l.lineState !== "SENT");
+    if (speciesFilter) arr = arr.filter((l) => l.species === speciesFilter);
+    if (search) {
+      const s = search.toLowerCase();
+      arr = arr.filter(
+        (l) =>
+          l.shortCode.includes(s) ||
+          l.productName.toLowerCase().includes(s) ||
+          (l.prepLabels || []).some((p) => p.toLowerCase().includes(s))
+      );
     }
-    load();
-  }
-
-  /** ---- Group orders by state for a 4-column board ---- */
-  const columns: { key: OrderStateLiteral; title: string }[] = [
-    { key: "PENDING", title: "Pending" },
-    { key: "PREPARING", title: "Preparing" },
-    { key: "READY_FOR_DELIVERY", title: "Ready" },
-    { key: "IN_TRANSIT", title: "Sent" },
-  ];
+    return arr;
+  }, [items, showSent, speciesFilter, search]);
 
   const byState = useMemo(() => {
-    const map: Record<OrderStateLiteral, Order[]> = {
+    const m: Record<LineState, LineItem[]> = {
       PENDING: [],
       PREPARING: [],
-      READY_FOR_DELIVERY: [],
-      IN_TRANSIT: [],
-      AT_GYM: [],
-      PICKED_UP: [],
-      CANCELLED: [],
+      READY: [],
+      SENT: [],
     };
-    for (const o of orders) map[o.state].push(o);
-    return map;
-  }, [orders]);
+    for (const li of filtered) m[li.lineState].push(li);
+    return m;
+  }, [filtered]);
+
+  async function move(lineId: string, next: LineState) {
+    try {
+      const r = await fetch(`/api/butcher/orders/lines/${lineId}/state`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ state: next }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        alert(j?.error ?? r.statusText);
+        return;
+      }
+      await load();
+    } catch (e: any) {
+      alert(e?.message ?? String(e));
+    }
+  }
+
+  const allSpecies = Array.from(new Set(items.map((l) => l.species)));
 
   return (
     <main style={{ maxWidth: 1200, margin: "2rem auto", padding: 16 }}>
-      <h1 style={{ fontSize: 24, marginBottom: 12 }}>Butcher Board</h1>
+      <h1 style={{ fontSize: 24, marginBottom: 12 }}>Butcher · Line Items</h1>
 
       {/* Toolbar */}
       <div
         style={{
           display: "flex",
           gap: 12,
+          flexWrap: "wrap",
           alignItems: "center",
           marginBottom: 12,
-          flexWrap: "wrap",
         }}
       >
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span>State:</span>
-          <select
-            className="border p-2 rounded"
-            value={stateFilter}
-            onChange={(e) => setStateFilter(e.target.value as any)}
-          >
-            <option value="ALL">All</option>
-            <option value="PENDING">Pending</option>
-            <option value="PREPARING">Preparing</option>
-            <option value="READY_FOR_DELIVERY">Ready</option>
-            <option value="IN_TRANSIT">Sent</option>
-          </select>
-        </label>
-
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <input
             type="checkbox"
-            checked={explode}
-            onChange={(e) => setExplode(e.target.checked)}
+            checked={showSent}
+            onChange={(e) => setShowSent(e.target.checked)}
           />
-          <span>Explode orders (line-by-line)</span>
+          Show Sent
         </label>
 
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <input
             type="checkbox"
             checked={poll}
             onChange={(e) => setPoll(e.target.checked)}
           />
-          <span>Auto-refresh</span>
+          Auto-refresh
         </label>
 
-        <button className="my_button" onClick={() => load()}>
+        <select
+          className="border p-2 rounded"
+          value={speciesFilter}
+          onChange={(e) => setSpeciesFilter(e.target.value)}
+        >
+          <option value="">All species</option>
+          {allSpecies.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+
+        <input
+          placeholder="Search code / product / prep"
+          className="border p-2 rounded"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ minWidth: 260 }}
+        />
+
+        <button className="my_button" onClick={load}>
           Refresh
         </button>
       </div>
 
+      {err && (
+        <div style={{ color: "crimson", marginBottom: 8 }}>Error: {err}</div>
+      )}
       {loading && <div>Loading…</div>}
-      {err && <div style={{ color: "crimson" }}>Error: {err}</div>}
 
-      {/* Board */}
+      {/* Columns */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
-          gap: 16,
-          alignItems: "start",
+          gap: 12,
+          gridTemplateColumns: "repeat(4, minmax(0,1fr))",
         }}
       >
-        {columns.map((col) => (
-          <section key={col.key}>
-            <h2 style={{ fontSize: 18, marginBottom: 8 }}>{col.title}</h2>
+        {COLS.map((col) => (
+          <section key={col.key} className="border rounded p-2">
+            <h2 style={{ fontSize: 18, marginBottom: 8 }}>
+              {col.title}{" "}
+              <span style={{ color: "#666" }}>({byState[col.key].length})</span>
+            </h2>
 
             <div style={{ display: "grid", gap: 8 }}>
-              {byState[col.key].map((o) => {
-                const placedAt = new Date(o.createdAt).toLocaleString();
-                const allReady =
-                  o.lines.length > 0 &&
-                  o.lines.every((l) => l.lineState === "READY");
+              {byState[col.key].map((li) => {
+                const canSendOut =
+                  li.lineState === "READY" &&
+                  (orderAllReady.get(li.orderId) ?? false);
 
                 return (
-                  <article key={o.id} className="border p-2 rounded">
+                  <article key={li.id} className="border p-2 rounded">
                     <div
                       style={{
                         display: "flex",
@@ -249,121 +234,33 @@ export default function ButcherBoard() {
                       }}
                     >
                       <div>
-                        <b>#{o.shortCode}</b>{" "}
+                        <b>#{li.shortCode}</b>{" "}
                         <span style={{ color: "#666" }}>
-                          · {stateLabel(o.state)}
+                          ({li.indexOf.i} of {li.indexOf.n})
                         </span>
                       </div>
                       <div style={{ color: "#666", fontSize: 12 }}>
-                        {placedAt}
+                        {new Date(li.createdAt).toLocaleString()}
                       </div>
                     </div>
 
-                    {/* Lines */}
-                    {!explode ? (
-                      // Collapsed: list lines as simple bullets
-                      <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
-                        {o.lines.map((l) => (
-                          <li key={l.id}>
-                            {l.qty}× {l.productName}
-                            {l.variantSizeGrams
-                              ? ` · ${l.variantSizeGrams}g`
-                              : l.unitLabel
-                              ? ` · ${l.unitLabel}`
-                              : ""}
-                            {l.prepLabels.length
-                              ? ` · ${l.prepLabels.join(", ")}`
-                              : ""}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      // Exploded: each line is its own little row w/ per-line controls
-                      <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-                        {o.lines.map((l) => (
-                          <div
-                            key={l.id}
-                            className="border rounded p-2"
-                            style={{
-                              background:
-                                l.lineState === "READY"
-                                  ? "#eefbf0"
-                                  : l.lineState === "PREPARING"
-                                  ? "#fff7e6"
-                                  : "#f6f7fb",
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                gap: 8,
-                                flexWrap: "wrap",
-                              }}
-                            >
-                              <div>
-                                <b>
-                                  {l.qty}× {l.productName}
-                                </b>
-                                {l.variantSizeGrams
-                                  ? ` · ${l.variantSizeGrams}g`
-                                  : l.unitLabel
-                                  ? ` · ${l.unitLabel}`
-                                  : ""}
-                                {l.prepLabels.length
-                                  ? ` · ${l.prepLabels.join(", ")}`
-                                  : ""}
-                                <span style={{ color: "#666", marginLeft: 6 }}>
-                                  ({l.lineState.toLowerCase()})
-                                </span>
-                              </div>
-                              <div
-                                style={{
-                                  display: "flex",
-                                  gap: 8,
-                                  flexWrap: "wrap",
-                                }}
-                              >
-                                {l.lineState === "PENDING" && (
-                                  <button
-                                    className="my_button"
-                                    onClick={() => moveLine(l.id, "PREPARING")}
-                                  >
-                                    Mark Preparing
-                                  </button>
-                                )}
-                                {l.lineState === "PREPARING" && (
-                                  <>
-                                    <button
-                                      className="my_button"
-                                      onClick={() => moveLine(l.id, "READY")}
-                                    >
-                                      Mark Ready
-                                    </button>
-                                    <button
-                                      className="my_button"
-                                      onClick={() => moveLine(l.id, "PENDING")}
-                                    >
-                                      Undo → Pending
-                                    </button>
-                                  </>
-                                )}
-                                {l.lineState === "READY" && (
-                                  <button
-                                    className="my_button"
-                                    onClick={() => moveLine(l.id, "PREPARING")}
-                                  >
-                                    Undo → Preparing
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                    <div style={{ marginTop: 6 }}>
+                      <div style={{ fontWeight: 600 }}>{li.productName}</div>
+                      <div style={{ color: "#666", fontSize: 13 }}>
+                        {li.qty}×{li.unitLabel ? ` · ${li.unitLabel}` : ""}
+                        {li.variantSizeGrams
+                          ? ` · ${li.variantSizeGrams}g`
+                          : ""}
+                        {li.part ? ` · ${li.part}` : ""}
+                        {li.pickupGymName ? ` · Gym: ${li.pickupGymName}` : ""}
                       </div>
-                    )}
+                      {!!li.prepLabels?.length && (
+                        <div style={{ marginTop: 4, fontSize: 13 }}>
+                          Prep: {li.prepLabels.join(", ")}
+                        </div>
+                      )}
+                    </div>
 
-                    {/* Order-level actions */}
                     <div
                       style={{
                         display: "flex",
@@ -372,54 +269,60 @@ export default function ButcherBoard() {
                         marginTop: 8,
                       }}
                     >
-                      {/* Show “Mark Ready” only if all lines are READY and order is PREPARING */}
-                      {o.state === "PREPARING" && (
+                      {/* Back / Undo */}
+                      {li.lineState !== "PENDING" && (
                         <button
                           className="my_button"
-                          disabled={!allReady}
-                          title={
-                            allReady
-                              ? ""
-                              : "All lines must be Ready before marking order Ready"
+                          onClick={() =>
+                            move(
+                              li.id,
+                              li.lineState === "READY" ? "PREPARING" : "PENDING"
+                            )
                           }
-                          onClick={() => moveOrder(o.id, "READY_FOR_DELIVERY")}
                         >
-                          Mark Ready (order)
+                          Undo
                         </button>
                       )}
 
-                      {/* Show “Send Out” only when order is READY_FOR_DELIVERY */}
-                      {o.state === "READY_FOR_DELIVERY" && (
+                      {/* Forward */}
+                      {li.lineState === "PENDING" && (
                         <button
                           className="my_button"
-                          onClick={() => moveOrder(o.id, "IN_TRANSIT")}
+                          onClick={() => move(li.id, "PREPARING")}
+                        >
+                          Start
+                        </button>
+                      )}
+                      {li.lineState === "PREPARING" && (
+                        <button
+                          className="my_button"
+                          onClick={() => move(li.id, "READY")}
+                        >
+                          Mark Ready
+                        </button>
+                      )}
+                      {li.lineState === "READY" && (
+                        <button
+                          className="my_button"
+                          onClick={() => move(li.id, "SENT")}
+                          disabled={!canSendOut}
+                          title={
+                            canSendOut
+                              ? "Send this order now"
+                              : "All items in this order must be READY"
+                          }
                         >
                           Send Out
                         </button>
                       )}
 
-                      {/* Show “Mark Preparing” if order still pending */}
-                      {o.state === "PENDING" && (
+                      {/* Minor undo from SENT */}
+                      {li.lineState === "SENT" && (
                         <button
                           className="my_button"
-                          onClick={() => moveOrder(o.id, "PREPARING")}
+                          onClick={() => move(li.id, "READY")}
                         >
-                          Mark Preparing (order)
-                        </button>
-                      )}
-
-                      {/* Allow Cancel for early states */}
-                      {(o.state === "PENDING" ||
-                        o.state === "PREPARING" ||
-                        o.state === "READY_FOR_DELIVERY") && (
-                        <button
-                          className="my_button"
-                          onClick={() => {
-                            if (!confirm("Cancel this order?")) return;
-                            moveOrder(o.id, "CANCELLED");
-                          }}
-                        >
-                          Cancel
+                          Undo Sent
                         </button>
                       )}
                     </div>
