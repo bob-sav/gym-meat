@@ -2,15 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-/** --- Types that mirror the API shape --- */
-type OrderStateLiteral =
-  | "PENDING"
-  | "PREPARING"
-  | "READY_FOR_DELIVERY"
-  | "IN_TRANSIT"
-  | "AT_GYM"
-  | "PICKED_UP"
-  | "CANCELLED";
+/** ---- Types that match the /api/butcher/orders response ---- */
+type LineState = "PENDING" | "PREPARING" | "READY";
 
 type Line = {
   id: string;
@@ -21,8 +14,18 @@ type Line = {
   species: string;
   part: string | null;
   variantSizeGrams: number | null;
-  prepLabels: string[]; // derived in API route
+  prepLabels: string[];
+  lineState: LineState;
 };
+
+type OrderStateLiteral =
+  | "PENDING"
+  | "PREPARING"
+  | "READY_FOR_DELIVERY"
+  | "IN_TRANSIT"
+  | "AT_GYM"
+  | "PICKED_UP"
+  | "CANCELLED";
 
 type Order = {
   id: string;
@@ -35,148 +38,64 @@ type Order = {
   lines: Line[];
 };
 
-/** A “flattened” card when exploding orders into individual work items */
-type LineCard = {
-  kind: "line";
-  id: string; // line id
-  orderId: string;
-  shortCode: string;
-  createdAt: string;
-  state: OrderStateLiteral;
-
-  productName: string;
-  qty: number;
-  unitLabel: string | null;
-  variantSizeGrams: number | null;
-  prepLabels: string[];
-  species: string;
-  part: string | null;
-
-  index: number; // 1-based index within order (only when exploded)
-  count: number; // total lines in that order
-};
-
-const NEXT: Record<OrderStateLiteral, OrderStateLiteral[]> = {
+/** Order-level transitions the *butcher* may trigger */
+const ORDER_NEXT: Record<OrderStateLiteral, OrderStateLiteral[]> = {
   PENDING: ["PREPARING", "CANCELLED"],
   PREPARING: ["READY_FOR_DELIVERY", "CANCELLED"],
   READY_FOR_DELIVERY: ["IN_TRANSIT", "CANCELLED"],
-  IN_TRANSIT: ["AT_GYM"],
-  AT_GYM: ["PICKED_UP", "CANCELLED"],
+  IN_TRANSIT: [], // gym-admin continues from here
+  AT_GYM: [],
   PICKED_UP: [],
   CANCELLED: [],
-} as const;
+};
 
-const COLS: { key: OrderStateLiteral; title: string }[] = [
-  { key: "PENDING", title: "Pending" },
-  { key: "PREPARING", title: "Preparing" },
-  { key: "READY_FOR_DELIVERY", title: "Ready" },
-];
-
-/** --- Helpers --- */
-function makeLineCards(o: Order): LineCard[] {
-  const count = o.lines.length || 1;
-  return o.lines.map((l, i) => ({
-    kind: "line" as const,
-    id: l.id,
-    orderId: o.id,
-    shortCode: o.shortCode,
-    createdAt: o.createdAt,
-    state: o.state,
-
-    productName: l.productName,
-    qty: l.qty,
-    unitLabel: l.unitLabel,
-    variantSizeGrams: l.variantSizeGrams ?? null,
-    prepLabels: l.prepLabels ?? [],
-    species: l.species,
-    part: l.part,
-
-    index: i + 1,
-    count,
-  }));
+/** A small label helper */
+function stateLabel(s: OrderStateLiteral) {
+  switch (s) {
+    case "PENDING":
+      return "Pending";
+    case "PREPARING":
+      return "Preparing";
+    case "READY_FOR_DELIVERY":
+      return "Ready";
+    case "IN_TRANSIT":
+      return "In transit";
+    case "AT_GYM":
+      return "At gym";
+    case "PICKED_UP":
+      return "Picked up";
+    case "CANCELLED":
+      return "Cancelled";
+    default:
+      return s;
+  }
 }
 
-function passesFilter(item: Order | LineCard, q: string) {
-  if (!q) return true;
-  const hay =
-    "kind" in item
-      ? [
-          item.shortCode,
-          item.productName,
-          item.species,
-          item.part ?? "",
-          ...(item.prepLabels ?? []),
-        ].join(" ")
-      : [
-          item.shortCode,
-          ...item.lines.map((l) => l.productName),
-          ...item.lines.map((l) => l.species),
-          ...item.lines.map((l) => l.part ?? ""),
-          ...item.lines.flatMap((l) => l.prepLabels ?? []),
-        ].join(" ");
-  return hay.toLowerCase().includes(q.toLowerCase());
-}
-
-type SortBy = "created" | "code" | "species" | "prep";
-
-function sortItems<T extends Order | LineCard>(arr: T[], sortBy: SortBy): T[] {
-  const copy = [...arr];
-  copy.sort((a, b) => {
-    if (sortBy === "created") {
-      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-    }
-    if (sortBy === "code") {
-      const ca = ("shortCode" in a ? a.shortCode : "") || "";
-      const cb = ("shortCode" in b ? b.shortCode : "") || "";
-      return ca.localeCompare(cb);
-    }
-    if (sortBy === "species") {
-      const sa = "kind" in a ? a.species : a.lines[0]?.species ?? ""; // coarse: first line species
-      const sb = "kind" in b ? b.species : b.lines[0]?.species ?? "";
-      return sa.localeCompare(sb);
-    }
-    if (sortBy === "prep") {
-      const pa =
-        "kind" in a
-          ? a.prepLabels.join(",")
-          : a.lines.flatMap((l) => l.prepLabels).join(",");
-      const pb =
-        "kind" in b
-          ? b.prepLabels.join(",")
-          : b.lines.flatMap((l) => l.prepLabels).join(",");
-      return pa.localeCompare(pb);
-    }
-    return 0;
-  });
-  return copy;
-}
-
-/** --- Page --- */
-export default function ButcherPage() {
-  const [items, setItems] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function ButcherBoard() {
+  /** ---- UI state ---- */
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const [stateFilter, setStateFilter] = useState<OrderStateLiteral | "ALL">(
-    "PENDING"
+  const [stateFilter, setStateFilter] = useState<"ALL" | OrderStateLiteral>(
+    "ALL"
   );
-  const [explodeLines, setExplodeLines] = useState(false);
-  const [sortBy, setSortBy] = useState<SortBy>("created");
-  const [q, setQ] = useState("");
-  const [poll, setPoll] = useState(true);
+  const [explode, setExplode] = useState(false);
+  const [poll, setPoll] = useState(false);
 
+  /** ---- Data loader ---- */
   const load = useCallback(async () => {
     try {
       setErr(null);
       setLoading(true);
-      const url =
+      const qs =
         stateFilter === "ALL"
-          ? "/api/butcher/orders"
-          : `/api/butcher/orders?state=${encodeURIComponent(stateFilter)}`;
-      const r = await fetch(url, { cache: "no-store" });
+          ? ""
+          : `?state=${encodeURIComponent(stateFilter)}`;
+      const r = await fetch(`/api/butcher/orders${qs}`, { cache: "no-store" });
       if (!r.ok) throw new Error(r.statusText);
       const j = await r.json();
-      setItems(j.items || []);
+      setOrders(j.items || []);
     } catch (e: any) {
       setErr(e?.message ?? String(e));
     } finally {
@@ -194,7 +113,8 @@ export default function ButcherPage() {
     return () => clearInterval(t);
   }, [poll, load]);
 
-  async function move(orderId: string, next: OrderStateLiteral) {
+  /** ---- Actions ---- */
+  async function moveOrder(orderId: string, next: OrderStateLiteral) {
     const r = await fetch(`/api/butcher/orders/${orderId}/state`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -208,9 +128,30 @@ export default function ButcherPage() {
     load();
   }
 
-  // Split orders by column state (only the three butcher columns)
+  async function moveLine(lineId: string, next: LineState) {
+    const r = await fetch(`/api/butcher/orders/lines/${lineId}/state`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: next }),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      alert(j?.error ?? r.statusText);
+      return;
+    }
+    load();
+  }
+
+  /** ---- Group orders by state for a 4-column board ---- */
+  const columns: { key: OrderStateLiteral; title: string }[] = [
+    { key: "PENDING", title: "Pending" },
+    { key: "PREPARING", title: "Preparing" },
+    { key: "READY_FOR_DELIVERY", title: "Ready" },
+    { key: "IN_TRANSIT", title: "Sent" },
+  ];
+
   const byState = useMemo(() => {
-    const m: Record<OrderStateLiteral, Order[]> = {
+    const map: Record<OrderStateLiteral, Order[]> = {
       PENDING: [],
       PREPARING: [],
       READY_FOR_DELIVERY: [],
@@ -219,175 +160,85 @@ export default function ButcherPage() {
       PICKED_UP: [],
       CANCELLED: [],
     };
-    for (const o of items) m[o.state as OrderStateLiteral]?.push(o);
-    return m;
-  }, [items]);
-
-  // Build the list to render for a given column
-  function getViewItems(colKey: OrderStateLiteral): (Order | LineCard)[] {
-    const base = byState[colKey] ?? [];
-    const exploded = explodeLines ? base.flatMap(makeLineCards) : base;
-    const filtered = exploded.filter((it) => passesFilter(it as any, q));
-    return sortItems(filtered as any[], sortBy);
-  }
+    for (const o of orders) map[o.state].push(o);
+    return map;
+  }, [orders]);
 
   return (
     <main style={{ maxWidth: 1200, margin: "2rem auto", padding: 16 }}>
-      <h1 style={{ fontSize: 24, marginBottom: 12 }}>Butcher dashboard</h1>
+      <h1 style={{ fontSize: 24, marginBottom: 12 }}>Butcher Board</h1>
 
       {/* Toolbar */}
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr 1fr 1fr auto",
-          gap: 8,
+          display: "flex",
+          gap: 12,
           alignItems: "center",
           marginBottom: 12,
+          flexWrap: "wrap",
         }}
       >
-        <label>
-          <div style={{ fontSize: 12, color: "#666" }}>State</div>
+        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span>State:</span>
           <select
-            className="border p-2 rounded w-full"
+            className="border p-2 rounded"
             value={stateFilter}
-            onChange={(e) =>
-              setStateFilter(e.target.value as OrderStateLiteral | "ALL")
-            }
+            onChange={(e) => setStateFilter(e.target.value as any)}
           >
             <option value="ALL">All</option>
             <option value="PENDING">Pending</option>
             <option value="PREPARING">Preparing</option>
             <option value="READY_FOR_DELIVERY">Ready</option>
+            <option value="IN_TRANSIT">Sent</option>
           </select>
         </label>
 
-        <label>
-          <div style={{ fontSize: 12, color: "#666" }}>Sort</div>
-          <select
-            className="border p-2 rounded w-full"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as SortBy)}
-          >
-            <option value="created">By time</option>
-            <option value="code">By code</option>
-            <option value="species">By species</option>
-            <option value="prep">By prep</option>
-          </select>
-        </label>
-
-        <label>
-          <div style={{ fontSize: 12, color: "#666" }}>Search</div>
-          <input
-            className="border p-2 rounded w-full"
-            placeholder="code, product, species, prep…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-        </label>
-
-        <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <input
             type="checkbox"
-            checked={explodeLines}
-            onChange={(e) => setExplodeLines(e.target.checked)}
+            checked={explode}
+            onChange={(e) => setExplode(e.target.checked)}
           />
-          Explode orders to lines
+          <span>Explode orders (line-by-line)</span>
         </label>
 
-        <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <input
             type="checkbox"
             checked={poll}
             onChange={(e) => setPoll(e.target.checked)}
           />
-          Auto refresh
+          <span>Auto-refresh</span>
         </label>
+
+        <button className="my_button" onClick={() => load()}>
+          Refresh
+        </button>
       </div>
 
       {loading && <div>Loading…</div>}
       {err && <div style={{ color: "crimson" }}>Error: {err}</div>}
 
-      {/* Columns */}
+      {/* Board */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: 12,
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: 16,
           alignItems: "start",
         }}
       >
-        {COLS.map((col) => (
-          <section key={col.key} className="border p-2 rounded">
-            <h2 style={{ fontWeight: 600, marginBottom: 8 }}>
-              {col.title} ({byState[col.key].length})
-            </h2>
+        {columns.map((col) => (
+          <section key={col.key}>
+            <h2 style={{ fontSize: 18, marginBottom: 8 }}>{col.title}</h2>
 
             <div style={{ display: "grid", gap: 8 }}>
-              {getViewItems(col.key).map((item) => {
-                const state = (item as any).state as OrderStateLiteral;
-                const actions = NEXT[state];
+              {byState[col.key].map((o) => {
+                const placedAt = new Date(o.createdAt).toLocaleString();
+                const allReady =
+                  o.lines.length > 0 &&
+                  o.lines.every((l) => l.lineState === "READY");
 
-                // Render either a whole order card or a single line card
-                const isLine = (item as any).kind === "line";
-
-                if (isLine) {
-                  const l = item as LineCard;
-                  return (
-                    <article key={l.id} className="border p-2 rounded">
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          gap: 8,
-                        }}
-                      >
-                        <div>
-                          <b>#{l.shortCode}</b>{" "}
-                          <span style={{ color: "#666" }}>
-                            ({l.index} of {l.count})
-                          </span>
-                        </div>
-                        <div style={{ color: "#666", fontSize: 12 }}>
-                          {new Date(l.createdAt).toLocaleString()}
-                        </div>
-                      </div>
-
-                      <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
-                        <li>
-                          {l.qty}× {l.productName}
-                          {l.unitLabel ? ` · ${l.unitLabel}` : ""}
-                          {l.variantSizeGrams
-                            ? ` · ${l.variantSizeGrams}g`
-                            : ""}
-                          {!!l.prepLabels?.length && (
-                            <div style={{ color: "#555", marginTop: 4 }}>
-                              Prep: {l.prepLabels.join(", ")}
-                            </div>
-                          )}
-                        </li>
-                      </ul>
-
-                      <div
-                        style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
-                      >
-                        {actions.map((ns) => (
-                          <button
-                            key={ns}
-                            className="my_button"
-                            onClick={() => move(l.orderId, ns)}
-                          >
-                            {ns === "PREPARING" && "Mark Preparing"}
-                            {ns === "READY_FOR_DELIVERY" && "Mark Ready"}
-                            {ns === "IN_TRANSIT" && "Send Out"}
-                            {ns === "CANCELLED" && "Cancel"}
-                          </button>
-                        ))}
-                      </div>
-                    </article>
-                  );
-                }
-
-                const o = item as Order;
                 return (
                   <article key={o.id} className="border p-2 rounded">
                     <div
@@ -398,43 +249,179 @@ export default function ButcherPage() {
                       }}
                     >
                       <div>
-                        <b>#{o.shortCode}</b>
+                        <b>#{o.shortCode}</b>{" "}
+                        <span style={{ color: "#666" }}>
+                          · {stateLabel(o.state)}
+                        </span>
                       </div>
                       <div style={{ color: "#666", fontSize: 12 }}>
-                        {new Date(o.createdAt).toLocaleString()}
+                        {placedAt}
                       </div>
                     </div>
 
-                    <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
-                      {o.lines.map((l) => (
-                        <li key={l.id}>
-                          {l.qty}× {l.productName}
-                          {l.unitLabel ? ` · ${l.unitLabel}` : ""}
-                          {l.variantSizeGrams
-                            ? ` · ${l.variantSizeGrams}g`
-                            : ""}
-                          {!!l.prepLabels?.length && (
-                            <div style={{ color: "#555", marginTop: 4 }}>
-                              Prep: {l.prepLabels.join(", ")}
+                    {/* Lines */}
+                    {!explode ? (
+                      // Collapsed: list lines as simple bullets
+                      <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
+                        {o.lines.map((l) => (
+                          <li key={l.id}>
+                            {l.qty}× {l.productName}
+                            {l.variantSizeGrams
+                              ? ` · ${l.variantSizeGrams}g`
+                              : l.unitLabel
+                              ? ` · ${l.unitLabel}`
+                              : ""}
+                            {l.prepLabels.length
+                              ? ` · ${l.prepLabels.join(", ")}`
+                              : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      // Exploded: each line is its own little row w/ per-line controls
+                      <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                        {o.lines.map((l) => (
+                          <div
+                            key={l.id}
+                            className="border rounded p-2"
+                            style={{
+                              background:
+                                l.lineState === "READY"
+                                  ? "#eefbf0"
+                                  : l.lineState === "PREPARING"
+                                  ? "#fff7e6"
+                                  : "#f6f7fb",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                gap: 8,
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <div>
+                                <b>
+                                  {l.qty}× {l.productName}
+                                </b>
+                                {l.variantSizeGrams
+                                  ? ` · ${l.variantSizeGrams}g`
+                                  : l.unitLabel
+                                  ? ` · ${l.unitLabel}`
+                                  : ""}
+                                {l.prepLabels.length
+                                  ? ` · ${l.prepLabels.join(", ")}`
+                                  : ""}
+                                <span style={{ color: "#666", marginLeft: 6 }}>
+                                  ({l.lineState.toLowerCase()})
+                                </span>
+                              </div>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: 8,
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                {l.lineState === "PENDING" && (
+                                  <button
+                                    className="my_button"
+                                    onClick={() => moveLine(l.id, "PREPARING")}
+                                  >
+                                    Mark Preparing
+                                  </button>
+                                )}
+                                {l.lineState === "PREPARING" && (
+                                  <>
+                                    <button
+                                      className="my_button"
+                                      onClick={() => moveLine(l.id, "READY")}
+                                    >
+                                      Mark Ready
+                                    </button>
+                                    <button
+                                      className="my_button"
+                                      onClick={() => moveLine(l.id, "PENDING")}
+                                    >
+                                      Undo → Pending
+                                    </button>
+                                  </>
+                                )}
+                                {l.lineState === "READY" && (
+                                  <button
+                                    className="my_button"
+                                    onClick={() => moveLine(l.id, "PREPARING")}
+                                  >
+                                    Undo → Preparing
+                                  </button>
+                                )}
+                              </div>
                             </div>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      {actions.map((ns) => (
+                    {/* Order-level actions */}
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        flexWrap: "wrap",
+                        marginTop: 8,
+                      }}
+                    >
+                      {/* Show “Mark Ready” only if all lines are READY and order is PREPARING */}
+                      {o.state === "PREPARING" && (
                         <button
-                          key={ns}
                           className="my_button"
-                          onClick={() => move(o.id, ns)}
+                          disabled={!allReady}
+                          title={
+                            allReady
+                              ? ""
+                              : "All lines must be Ready before marking order Ready"
+                          }
+                          onClick={() => moveOrder(o.id, "READY_FOR_DELIVERY")}
                         >
-                          {ns === "PREPARING" && "Mark Preparing"}
-                          {ns === "READY_FOR_DELIVERY" && "Mark Ready"}
-                          {ns === "IN_TRANSIT" && "Send Out"}
-                          {ns === "CANCELLED" && "Cancel"}
+                          Mark Ready (order)
                         </button>
-                      ))}
+                      )}
+
+                      {/* Show “Send Out” only when order is READY_FOR_DELIVERY */}
+                      {o.state === "READY_FOR_DELIVERY" && (
+                        <button
+                          className="my_button"
+                          onClick={() => moveOrder(o.id, "IN_TRANSIT")}
+                        >
+                          Send Out
+                        </button>
+                      )}
+
+                      {/* Show “Mark Preparing” if order still pending */}
+                      {o.state === "PENDING" && (
+                        <button
+                          className="my_button"
+                          onClick={() => moveOrder(o.id, "PREPARING")}
+                        >
+                          Mark Preparing (order)
+                        </button>
+                      )}
+
+                      {/* Allow Cancel for early states */}
+                      {(o.state === "PENDING" ||
+                        o.state === "PREPARING" ||
+                        o.state === "READY_FOR_DELIVERY") && (
+                        <button
+                          className="my_button"
+                          onClick={() => {
+                            if (!confirm("Cancel this order?")) return;
+                            moveOrder(o.id, "CANCELLED");
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      )}
                     </div>
                   </article>
                 );

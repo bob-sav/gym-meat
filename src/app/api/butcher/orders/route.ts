@@ -73,27 +73,35 @@ export async function GET(req: NextRequest) {
           variantSizeGrams: true,
           // we won't expose optionsJson directly; we derive prepLabels from it
           optionsJson: true,
+          lineState: true,
         },
       },
     },
   });
 
   // enrich lines -> add prepLabels, keep variantSizeGrams
-  const items = rows.map((o) => ({
-    id: o.id,
-    shortCode: o.shortCode,
-    state: o.state,
-    totalCents: o.totalCents,
-    pickupGymName: o.pickupGymName,
-    pickupWhen: o.pickupWhen,
-    createdAt: o.createdAt,
-    lines: o.lines.map((l) => {
-      const { optionsJson, ...rest } = l as any;
-      const prepLabels = Array.isArray(optionsJson)
-        ? optionsJson.map((x: any) => x?.label).filter(Boolean)
-        : [];
-      return { ...rest, prepLabels };
-    }),
+  const items = rows.map((order) => ({
+    id: order.id,
+    shortCode: order.shortCode,
+    state: order.state,
+    totalCents: order.totalCents,
+    pickupGymName: order.pickupGymName,
+    pickupWhen: order.pickupWhen,
+    createdAt: order.createdAt,
+    lines: order.lines.map((l) => ({
+      id: l.id,
+      productName: l.productName,
+      qty: l.qty,
+      unitLabel: l.unitLabel,
+      basePriceCents: l.basePriceCents,
+      species: l.species,
+      part: l.part,
+      variantSizeGrams: l.variantSizeGrams,
+      prepLabels: Array.isArray(l.optionsJson)
+        ? (l.optionsJson.map((o: any) => o?.label).filter(Boolean) as string[])
+        : [],
+      lineState: l.lineState, // ← pass through
+    })),
   }));
 
   return NextResponse.json({ items });
