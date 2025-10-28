@@ -20,6 +20,7 @@ type Line = {
   basePriceCents: number;
   species: string;
   part: string | null;
+  variantSizeGrams: number | null;
 };
 
 type Order = {
@@ -30,6 +31,7 @@ type Order = {
   pickupGymName: string | null;
   pickupWhen: string | null;
   createdAt: string;
+  gymSettlementId: string | null;
   lines: Line[];
 };
 
@@ -45,18 +47,7 @@ export default function GymAdminPage() {
     try {
       setErr(null);
       setLoading(true);
-
-      // Which states to load?
-      const states = showCompleted
-        ? "AT_GYM,PICKED_UP"
-        : "PENDING,PREPARING,READY_FOR_DELIVERY,IN_TRANSIT";
-
-      const r = await fetch(
-        `/api/gym/orders?states=${encodeURIComponent(states)}`,
-        {
-          cache: "no-store",
-        }
-      );
+      const r = await fetch("/api/gym/orders", { cache: "no-store" });
       if (!r.ok) throw new Error(r.statusText);
       const j = await r.json();
       setItems(j.items || []);
@@ -65,7 +56,7 @@ export default function GymAdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [showCompleted]);
+  }, []);
 
   useEffect(() => {
     load();
@@ -76,6 +67,18 @@ export default function GymAdminPage() {
     const t = setInterval(load, 10_000);
     return () => clearInterval(t);
   }, [poll, load]);
+
+  const CAN_DO: Record<OrderState, OrderState[]> = {
+    PENDING: [],
+    PREPARING: [],
+    READY_FOR_DELIVERY: [],
+    IN_TRANSIT: ["AT_GYM"], // gym can mark arrived
+    AT_GYM: ["PICKED_UP", "CANCELLED"], // gym can close out
+    PICKED_UP: [],
+    CANCELLED: [],
+  };
+  const canDo = (from: OrderState, to: OrderState) =>
+    (CAN_DO[from] || []).includes(to);
 
   // Buckets for rendering
   const upcoming = useMemo(
@@ -104,22 +107,54 @@ export default function GymAdminPage() {
     [items]
   );
 
-  async function move(
-    orderId: string,
-    next: "AT_GYM" | "PICKED_UP" | "CANCELLED"
-  ) {
+  // Completed but **unsettled** only (PICKED_UP && no gymSettlementId)
+  const completedUnsettled = useMemo(
+    () => items.filter((o) => o.state === "PICKED_UP" && !o.gymSettlementId),
+    [items]
+  );
+
+  const unsettledTotalCents = useMemo(
+    () => completedUnsettled.reduce((s, o) => s + (o.totalCents || 0), 0),
+    [completedUnsettled]
+  );
+
+  async function move(orderId: string, from: OrderState, next: OrderState) {
+    if (!canDo(from, next)) return; // UI should already disable, but double-guard
     try {
       const r = await fetch(`/api/gym/orders/${orderId}/state`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ state: next }),
       });
+      const j = await r.json().catch(() => ({}));
       if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
         alert(j?.error ?? r.statusText);
         return;
       }
       await load();
+    } catch (e: any) {
+      alert(e?.message ?? String(e));
+    }
+  }
+
+  async function closeRemittance() {
+    try {
+      const r = await fetch("/api/gym/settlements", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gymId: "<optional specific gym>" }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(j?.error ?? r.statusText);
+        return;
+      }
+      await load();
+      alert(
+        `Settled ${j?.count ?? 0} orders · ${(
+          (j?.totalCents ?? 0) / 100
+        ).toFixed(2)} €`
+      );
     } catch (e: any) {
       alert(e?.message ?? String(e));
     }
@@ -160,10 +195,12 @@ export default function GymAdminPage() {
     <main style={{ maxWidth: 1200, margin: "2rem auto", padding: 16 }}>
       <h1 style={{ fontSize: 24, marginBottom: 12 }}>Gym Admin</h1>
 
+      {/* Toolbar */}
       <div
         style={{
           display: "flex",
           gap: 12,
+          flexWrap: "wrap",
           alignItems: "center",
           marginBottom: 12,
         }}
@@ -183,7 +220,7 @@ export default function GymAdminPage() {
             checked={showCompleted}
             onChange={(e) => setShowCompleted(e.target.checked)}
           />
-          Show completed view
+          Show completed (unsettled)
         </label>
 
         <button className="my_button" onClick={load}>
@@ -200,10 +237,12 @@ export default function GymAdminPage() {
         style={{
           display: "grid",
           gap: 12,
-          gridTemplateColumns: "repeat(2, minmax(0,1fr))",
+          gridTemplateColumns: showCompleted
+            ? "repeat(3, minmax(0,1fr))"
+            : "repeat(2, minmax(0,1fr))",
         }}
       >
-        {/* LEFT: Upcoming (read-only) + In Transit (actionable) */}
+        {/* LEFT COLUMN: Upcoming (read-only) + In Transit (actionable) */}
         <section className="border rounded p-2">
           <h2 style={{ fontSize: 18, marginBottom: 8 }}>
             Incoming & In-Transit{" "}
@@ -212,7 +251,7 @@ export default function GymAdminPage() {
             </span>
           </h2>
 
-          {/* Upcoming (read-only cards) */}
+          {/* Upcoming (read-only) */}
           {!!upcoming.length && (
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontWeight: 600, margin: "6px 0" }}>Incoming</div>
@@ -242,11 +281,18 @@ export default function GymAdminPage() {
                         <li key={l.id}>
                           {l.qty}× {l.productName}
                           {l.unitLabel ? ` · ${l.unitLabel}` : ""}
+                          {l.variantSizeGrams
+                            ? ` · ${l.variantSizeGrams}g`
+                            : ""}
+                          {l.part ? ` · ${l.part}` : ""}
                         </li>
                       ))}
                     </ul>
                     <div style={{ color: "#666", fontSize: 12 }}>
                       Pickup: {o.pickupGymName ?? "—"}
+                    </div>
+                    <div>
+                      <b>Total:</b> {(o.totalCents / 100).toFixed(2)} €
                     </div>
                   </article>
                 ))}
@@ -254,64 +300,13 @@ export default function GymAdminPage() {
             </div>
           )}
 
-          {/* In Transit (action: mark AT_GYM) */}
+          {/* In Transit (actionable: Arrived) */}
           <div>
             <div style={{ fontWeight: 600, margin: "6px 0" }}>In Transit</div>
             <div style={{ display: "grid", gap: 8 }}>
-              {inTransit.map((o) => (
-                <article key={o.id} className="border p-2 rounded">
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: 8,
-                    }}
-                  >
-                    <div>
-                      <b>#{o.shortCode}</b> <Badge s={o.state} />
-                    </div>
-                    <div style={{ color: "#666", fontSize: 12 }}>
-                      {new Date(o.createdAt).toLocaleString()}
-                    </div>
-                  </div>
-                  <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
-                    {o.lines.map((l) => (
-                      <li key={l.id}>
-                        {l.qty}× {l.productName}
-                        {l.unitLabel ? ` · ${l.unitLabel}` : ""}
-                      </li>
-                    ))}
-                  </ul>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button
-                      className="my_button"
-                      onClick={() => move(o.id, "AT_GYM")}
-                      title="Mark the order as arrived"
-                    >
-                      Arrived
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* RIGHT: At Gym / Completed */}
-        <section className="border rounded p-2">
-          <h2 style={{ fontSize: 18, marginBottom: 8 }}>
-            At Gym / Completed{" "}
-            <span style={{ color: "#666" }}>
-              ({atGym.length + pickedUp.length})
-            </span>
-          </h2>
-
-          {/* AT_GYM (actionable) */}
-          {!!atGym.length && (
-            <>
-              <div style={{ fontWeight: 600, margin: "6px 0" }}>At Gym</div>
-              <div style={{ display: "grid", gap: 8 }}>
-                {atGym.map((o) => (
+              {inTransit.map((o) => {
+                const canArrive = canDo(o.state, "AT_GYM");
+                return (
                   <article key={o.id} className="border p-2 rounded">
                     <div
                       style={{
@@ -324,7 +319,9 @@ export default function GymAdminPage() {
                         <b>#{o.shortCode}</b> <Badge s={o.state} />
                       </div>
                       <div style={{ color: "#666", fontSize: 12 }}>
-                        {new Date(o.createdAt).toLocaleString()}
+                        {o.pickupWhen
+                          ? new Date(o.pickupWhen).toLocaleString()
+                          : new Date(o.createdAt).toLocaleString()}
                       </div>
                     </div>
                     <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
@@ -332,33 +329,126 @@ export default function GymAdminPage() {
                         <li key={l.id}>
                           {l.qty}× {l.productName}
                           {l.unitLabel ? ` · ${l.unitLabel}` : ""}
+                          {l.variantSizeGrams
+                            ? ` · ${l.variantSizeGrams}g`
+                            : ""}
+                          {l.part ? ` · ${l.part}` : ""}
                         </li>
                       ))}
                     </ul>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <div>
+                      <b>Total:</b> {(o.totalCents / 100).toFixed(2)} €
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        flexWrap: "wrap",
+                        marginTop: 6,
+                      }}
+                    >
                       <button
                         className="my_button"
-                        onClick={() => move(o.id, "PICKED_UP")}
-                        title="Customer picked up"
+                        onClick={() => move(o.id, o.state, "AT_GYM")}
+                        disabled={!canArrive}
+                        title={
+                          canArrive
+                            ? "Mark the order as arrived"
+                            : "Not allowed"
+                        }
                       >
-                        Picked up
-                      </button>
-                      <button
-                        className="my_button"
-                        onClick={() => move(o.id, "CANCELLED")}
-                        title="Order cancelled"
-                      >
-                        Cancel
+                        Arrived
                       </button>
                     </div>
                   </article>
-                ))}
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* RIGHT COLUMN: At Gym / Completed */}
+        <section className="border rounded p-2">
+          <h2 style={{ fontSize: 18, marginBottom: 8 }}>
+            At Gym / Completed{" "}
+            <span style={{ color: "#666" }}>
+              ({atGym.length + pickedUp.length})
+            </span>
+          </h2>
+
+          {/* AT_GYM (actionable: Picked up / Cancel) */}
+          {!!atGym.length && (
+            <>
+              <div style={{ fontWeight: 600, margin: "6px 0" }}>At Gym</div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {atGym.map((o) => {
+                  const canPickup = canDo(o.state, "PICKED_UP");
+                  const canCancel = canDo(o.state, "CANCELLED");
+                  return (
+                    <article key={o.id} className="border p-2 rounded">
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 8,
+                        }}
+                      >
+                        <div>
+                          <b>#{o.shortCode}</b> <Badge s={o.state} />
+                        </div>
+                        <div style={{ color: "#666", fontSize: 12 }}>
+                          {new Date(o.createdAt).toLocaleString()}
+                        </div>
+                      </div>
+                      <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
+                        {o.lines.map((l) => (
+                          <li key={l.id}>
+                            {l.qty}× {l.productName}
+                            {l.unitLabel ? ` · ${l.unitLabel}` : ""}
+                            {l.variantSizeGrams
+                              ? ` · ${l.variantSizeGrams}g`
+                              : ""}
+                            {l.part ? ` · ${l.part}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                      <div>
+                        <b>Total:</b> {(o.totalCents / 100).toFixed(2)} €
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          flexWrap: "wrap",
+                          marginTop: 6,
+                        }}
+                      >
+                        <button
+                          className="my_button"
+                          onClick={() => move(o.id, o.state, "PICKED_UP")}
+                          title="Customer picked up"
+                          disabled={!canPickup}
+                        >
+                          Picked up
+                        </button>
+                        <button
+                          className="my_button"
+                          onClick={() => move(o.id, o.state, "CANCELLED")}
+                          title="Order cancelled"
+                          disabled={!canCancel}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             </>
           )}
 
-          {/* PICKED_UP (read-only) */}
-          {!!pickedUp.length && (
+          {/* PICKED_UP (read-only; shown only if showCompleted) */}
+          {showCompleted && !!pickedUp.length && (
             <>
               <div style={{ fontWeight: 600, margin: "12px 0 6px" }}>
                 Picked Up
@@ -368,7 +458,7 @@ export default function GymAdminPage() {
                   <article
                     key={o.id}
                     className="border p-2 rounded"
-                    style={{ opacity: 0.85 }}
+                    style={{ opacity: 0.9 }}
                   >
                     <div
                       style={{
@@ -389,15 +479,86 @@ export default function GymAdminPage() {
                         <li key={l.id}>
                           {l.qty}× {l.productName}
                           {l.unitLabel ? ` · ${l.unitLabel}` : ""}
+                          {l.variantSizeGrams
+                            ? ` · ${l.variantSizeGrams}g`
+                            : ""}
+                          {l.part ? ` · ${l.part}` : ""}
                         </li>
                       ))}
                     </ul>
+                    <div>
+                      <b>Total:</b> {(o.totalCents / 100).toFixed(2)} €
+                    </div>
                   </article>
                 ))}
               </div>
             </>
           )}
         </section>
+
+        {/* THIRD COLUMN (only when showCompleted): Settlement summary */}
+        {showCompleted && (
+          <section className="border rounded p-2">
+            <h2 style={{ fontSize: 18, marginBottom: 8 }}>
+              Remittance Summary{" "}
+              <span style={{ color: "#666" }}>
+                ({completedUnsettled.length})
+              </span>
+            </h2>
+
+            {!!completedUnsettled.length ? (
+              <>
+                <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
+                  {completedUnsettled.map((o) => (
+                    <article
+                      key={o.id}
+                      className="border p-2 rounded"
+                      style={{ opacity: 0.95 }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 8,
+                        }}
+                      >
+                        <div>
+                          <b>#{o.shortCode}</b> <Badge s={o.state} />
+                        </div>
+                        <div style={{ color: "#666", fontSize: 12 }}>
+                          {new Date(o.createdAt).toLocaleString()}
+                        </div>
+                      </div>
+                      <div>
+                        <b>Total:</b> {(o.totalCents / 100).toFixed(2)} €
+                      </div>
+                    </article>
+                  ))}
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    borderTop: "1px solid #e5e7eb",
+                    paddingTop: 8,
+                  }}
+                >
+                  <div>
+                    <b>Unsettled total:</b>{" "}
+                    {(unsettledTotalCents / 100).toFixed(2)} €
+                  </div>
+                  <button className="my_button" onClick={closeRemittance}>
+                    Settle & Clear
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div style={{ color: "#666" }}>No unsettled orders.</div>
+            )}
+          </section>
+        )}
       </div>
     </main>
   );

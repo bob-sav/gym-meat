@@ -70,7 +70,12 @@ export async function GET(req: NextRequest) {
   }
 
   const items = await prisma.order.findMany({
-    where,
+    where: {
+      pickupGymId: { in: gymIds },
+      // we keep all states here; the client decides what to show
+      // Optionally exclude CANCELLED:
+      // NOT: { state: OrderState.CANCELLED }
+    },
     orderBy: { createdAt: "asc" },
     select: {
       id: true,
@@ -91,6 +96,7 @@ export async function GET(req: NextRequest) {
           basePriceCents: true,
           species: true,
           part: true,
+          variantSizeGrams: true,
         },
       },
     },
