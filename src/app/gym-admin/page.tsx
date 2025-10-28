@@ -1,3 +1,4 @@
+// src/app/gym-admin/page.tsx
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -19,8 +20,6 @@ type Line = {
   basePriceCents: number;
   species: string;
   part: string | null;
-  variantSizeGrams: number | null;
-  prepLabels: string[];
 };
 
 type Order = {
@@ -34,50 +33,30 @@ type Order = {
   lines: Line[];
 };
 
-// Which next states a gym-admin may set
-const CAN_GO: Record<OrderState, OrderState[]> = {
-  IN_TRANSIT: ["AT_GYM"],
-  AT_GYM: ["PICKED_UP", "CANCELLED"],
-  // others are not changeable from gym-admin UI
-  PENDING: [],
-  PREPARING: [],
-  READY_FOR_DELIVERY: [],
-  PICKED_UP: [],
-  CANCELLED: [],
-};
-
-const ALL_STATE_ORDER: OrderState[] = [
-  "IN_TRANSIT",
-  "AT_GYM",
-  "PICKED_UP",
-  "CANCELLED",
-];
-
 export default function GymAdminPage() {
-  // Filters
-  const [states, setStates] = useState<OrderState[]>(["IN_TRANSIT", "AT_GYM"]);
-  const [poll, setPoll] = useState(true);
-  const [search, setSearch] = useState("");
-
-  // Data
   const [items, setItems] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Build query string from selected states
-  const queryString = useMemo(() => {
-    const sp = new URLSearchParams();
-    for (const s of states) sp.append("state", s);
-    return `?${sp.toString()}`;
-  }, [states]);
+  const [poll, setPoll] = useState(true);
+  const [showCompleted, setShowCompleted] = useState(false);
 
   const load = useCallback(async () => {
     try {
       setErr(null);
       setLoading(true);
-      const r = await fetch(`/api/gym/orders${queryString}`, {
-        cache: "no-store",
-      });
+
+      // Which states to load?
+      const states = showCompleted
+        ? "AT_GYM,PICKED_UP"
+        : "PENDING,PREPARING,READY_FOR_DELIVERY,IN_TRANSIT";
+
+      const r = await fetch(
+        `/api/gym/orders?states=${encodeURIComponent(states)}`,
+        {
+          cache: "no-store",
+        }
+      );
       if (!r.ok) throw new Error(r.statusText);
       const j = await r.json();
       setItems(j.items || []);
@@ -86,7 +65,7 @@ export default function GymAdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [queryString]);
+  }, [showCompleted]);
 
   useEffect(() => {
     load();
@@ -98,40 +77,37 @@ export default function GymAdminPage() {
     return () => clearInterval(t);
   }, [poll, load]);
 
-  // Client-side search filter (code/product/prep)
-  const filtered = useMemo(() => {
-    if (!search) return items;
-    const s = search.toLowerCase();
-    return items.filter(
-      (o) =>
-        o.shortCode.includes(s) ||
-        o.lines.some(
-          (l) =>
-            l.productName.toLowerCase().includes(s) ||
-            (l.prepLabels || []).some((p) => p.toLowerCase().includes(s))
-        )
-    );
-  }, [items, search]);
+  // Buckets for rendering
+  const upcoming = useMemo(
+    () =>
+      items.filter(
+        (o) =>
+          o.state === "PENDING" ||
+          o.state === "PREPARING" ||
+          o.state === "READY_FOR_DELIVERY"
+      ),
+    [items]
+  );
 
-  // Group by state for columns (only render columns the user selected)
-  const byState = useMemo(() => {
-    const m = new Map<OrderState, Order[]>();
-    for (const st of ALL_STATE_ORDER) m.set(st, []);
-    for (const o of filtered) {
-      const arr = m.get(o.state);
-      if (arr) arr.push(o);
-    }
-    return m;
-  }, [filtered]);
+  const inTransit = useMemo(
+    () => items.filter((o) => o.state === "IN_TRANSIT"),
+    [items]
+  );
 
-  // Toggle a state chip in the toolbar
-  function toggleState(s: OrderState) {
-    setStates((prev) =>
-      prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]
-    );
-  }
+  const atGym = useMemo(
+    () => items.filter((o) => o.state === "AT_GYM"),
+    [items]
+  );
 
-  async function move(orderId: string, next: OrderState) {
+  const pickedUp = useMemo(
+    () => items.filter((o) => o.state === "PICKED_UP"),
+    [items]
+  );
+
+  async function move(
+    orderId: string,
+    next: "AT_GYM" | "PICKED_UP" | "CANCELLED"
+  ) {
     try {
       const r = await fetch(`/api/gym/orders/${orderId}/state`, {
         method: "PATCH",
@@ -149,39 +125,49 @@ export default function GymAdminPage() {
     }
   }
 
-  const visibleStates = ALL_STATE_ORDER.filter((s) => states.includes(s));
+  function Badge({ s }: { s: OrderState }) {
+    const color =
+      s === "PENDING"
+        ? "#aaa"
+        : s === "PREPARING"
+        ? "#0ea5e9"
+        : s === "READY_FOR_DELIVERY"
+        ? "#f59e0b"
+        : s === "IN_TRANSIT"
+        ? "#8b5cf6"
+        : s === "AT_GYM"
+        ? "#22c55e"
+        : s === "PICKED_UP"
+        ? "#16a34a"
+        : "#ef4444"; // CANCELLED
+    return (
+      <span
+        style={{
+          display: "inline-block",
+          padding: "2px 8px",
+          borderRadius: 999,
+          background: color,
+          color: "white",
+          fontSize: 12,
+        }}
+      >
+        {s}
+      </span>
+    );
+  }
 
   return (
     <main style={{ maxWidth: 1200, margin: "2rem auto", padding: 16 }}>
       <h1 style={{ fontSize: 24, marginBottom: 12 }}>Gym Admin</h1>
 
-      {/* Toolbar */}
       <div
         style={{
           display: "flex",
           gap: 12,
-          flexWrap: "wrap",
           alignItems: "center",
           marginBottom: 12,
         }}
       >
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {ALL_STATE_ORDER.map((s) => {
-            const on = states.includes(s);
-            return (
-              <button
-                key={s}
-                className="my_button"
-                style={{ background: on ? "#ec1818ff" : "#2306ff" }}
-                onClick={() => toggleState(s)}
-                title={`Toggle ${s}`}
-              >
-                {s.replaceAll("_", " ")}
-              </button>
-            );
-          })}
-        </div>
-
         <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <input
             type="checkbox"
@@ -191,43 +177,141 @@ export default function GymAdminPage() {
           Auto-refresh
         </label>
 
-        <input
-          placeholder="Search code / product / prep"
-          className="border p-2 rounded"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ minWidth: 260 }}
-        />
+        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input
+            type="checkbox"
+            checked={showCompleted}
+            onChange={(e) => setShowCompleted(e.target.checked)}
+          />
+          Show completed view
+        </label>
 
         <button className="my_button" onClick={load}>
           Refresh
         </button>
       </div>
 
-      {err && <div style={{ color: "crimson" }}>Error: {err}</div>}
+      {err && (
+        <div style={{ color: "crimson", marginBottom: 8 }}>Error: {err}</div>
+      )}
       {loading && <div>Loading…</div>}
 
-      {/* Columns */}
       <div
         style={{
           display: "grid",
           gap: 12,
-          gridTemplateColumns: `repeat(${
-            visibleStates.length || 1
-          }, minmax(0,1fr))`,
+          gridTemplateColumns: "repeat(2, minmax(0,1fr))",
         }}
       >
-        {visibleStates.map((stateKey) => {
-          const list = byState.get(stateKey) ?? [];
-          return (
-            <section key={stateKey} className="border rounded p-2">
-              <h2 style={{ fontSize: 18, marginBottom: 8 }}>
-                {stateKey.replaceAll("_", " ")}{" "}
-                <span style={{ color: "#666" }}>({list.length})</span>
-              </h2>
+        {/* LEFT: Upcoming (read-only) + In Transit (actionable) */}
+        <section className="border rounded p-2">
+          <h2 style={{ fontSize: 18, marginBottom: 8 }}>
+            Incoming & In-Transit{" "}
+            <span style={{ color: "#666" }}>
+              ({upcoming.length + inTransit.length})
+            </span>
+          </h2>
 
+          {/* Upcoming (read-only cards) */}
+          {!!upcoming.length && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontWeight: 600, margin: "6px 0" }}>Incoming</div>
               <div style={{ display: "grid", gap: 8 }}>
-                {list.map((o) => (
+                {upcoming.map((o) => (
+                  <article
+                    key={o.id}
+                    className="border p-2 rounded"
+                    style={{ opacity: 0.85 }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 8,
+                      }}
+                    >
+                      <div>
+                        <b>#{o.shortCode}</b> <Badge s={o.state} />
+                      </div>
+                      <div style={{ color: "#666", fontSize: 12 }}>
+                        {new Date(o.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+                    <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
+                      {o.lines.map((l) => (
+                        <li key={l.id}>
+                          {l.qty}× {l.productName}
+                          {l.unitLabel ? ` · ${l.unitLabel}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                    <div style={{ color: "#666", fontSize: 12 }}>
+                      Pickup: {o.pickupGymName ?? "—"}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* In Transit (action: mark AT_GYM) */}
+          <div>
+            <div style={{ fontWeight: 600, margin: "6px 0" }}>In Transit</div>
+            <div style={{ display: "grid", gap: 8 }}>
+              {inTransit.map((o) => (
+                <article key={o.id} className="border p-2 rounded">
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 8,
+                    }}
+                  >
+                    <div>
+                      <b>#{o.shortCode}</b> <Badge s={o.state} />
+                    </div>
+                    <div style={{ color: "#666", fontSize: 12 }}>
+                      {new Date(o.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+                  <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
+                    {o.lines.map((l) => (
+                      <li key={l.id}>
+                        {l.qty}× {l.productName}
+                        {l.unitLabel ? ` · ${l.unitLabel}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      className="my_button"
+                      onClick={() => move(o.id, "AT_GYM")}
+                      title="Mark the order as arrived"
+                    >
+                      Arrived
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* RIGHT: At Gym / Completed */}
+        <section className="border rounded p-2">
+          <h2 style={{ fontSize: 18, marginBottom: 8 }}>
+            At Gym / Completed{" "}
+            <span style={{ color: "#666" }}>
+              ({atGym.length + pickedUp.length})
+            </span>
+          </h2>
+
+          {/* AT_GYM (actionable) */}
+          {!!atGym.length && (
+            <>
+              <div style={{ fontWeight: 600, margin: "6px 0" }}>At Gym</div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {atGym.map((o) => (
                   <article key={o.id} className="border p-2 rounded">
                     <div
                       style={{
@@ -237,49 +321,83 @@ export default function GymAdminPage() {
                       }}
                     >
                       <div>
-                        <b>#{o.shortCode}</b>{" "}
-                        {o.pickupGymName ? `· ${o.pickupGymName}` : ""}
+                        <b>#{o.shortCode}</b> <Badge s={o.state} />
                       </div>
                       <div style={{ color: "#666", fontSize: 12 }}>
                         {new Date(o.createdAt).toLocaleString()}
                       </div>
                     </div>
-
                     <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
                       {o.lines.map((l) => (
                         <li key={l.id}>
                           {l.qty}× {l.productName}
                           {l.unitLabel ? ` · ${l.unitLabel}` : ""}
-                          {l.variantSizeGrams
-                            ? ` · ${l.variantSizeGrams}g`
-                            : ""}
-                          {l.part ? ` · ${l.part}` : ""}
-                          {!!l.prepLabels?.length
-                            ? ` · Prep: ${l.prepLabels.join(", ")}`
-                            : ""}
                         </li>
                       ))}
                     </ul>
-
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      {(CAN_GO[o.state] || []).map((ns) => (
-                        <button
-                          key={ns}
-                          className="my_button"
-                          onClick={() => move(o.id, ns)}
-                        >
-                          {ns === "AT_GYM" && "Mark Arrived"}
-                          {ns === "PICKED_UP" && "Mark Picked Up"}
-                          {ns === "CANCELLED" && "Cancel"}
-                        </button>
-                      ))}
+                      <button
+                        className="my_button"
+                        onClick={() => move(o.id, "PICKED_UP")}
+                        title="Customer picked up"
+                      >
+                        Picked up
+                      </button>
+                      <button
+                        className="my_button"
+                        onClick={() => move(o.id, "CANCELLED")}
+                        title="Order cancelled"
+                      >
+                        Cancel
+                      </button>
                     </div>
                   </article>
                 ))}
               </div>
-            </section>
-          );
-        })}
+            </>
+          )}
+
+          {/* PICKED_UP (read-only) */}
+          {!!pickedUp.length && (
+            <>
+              <div style={{ fontWeight: 600, margin: "12px 0 6px" }}>
+                Picked Up
+              </div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {pickedUp.map((o) => (
+                  <article
+                    key={o.id}
+                    className="border p-2 rounded"
+                    style={{ opacity: 0.85 }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 8,
+                      }}
+                    >
+                      <div>
+                        <b>#{o.shortCode}</b> <Badge s={o.state} />
+                      </div>
+                      <div style={{ color: "#666", fontSize: 12 }}>
+                        {new Date(o.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+                    <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
+                      {o.lines.map((l) => (
+                        <li key={l.id}>
+                          {l.qty}× {l.productName}
+                          {l.unitLabel ? ` · ${l.unitLabel}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </article>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
       </div>
     </main>
   );

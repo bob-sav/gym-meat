@@ -15,17 +15,18 @@ datasource db {
 }
 
 model User {
-  id            String        @id @default(cuid())
+  id            String          @id @default(cuid())
   name          String?
-  email         String?       @unique
+  email         String?         @unique
   emailVerified DateTime?
   image         String?
-  passwordHash  String?       @db.Text
+  passwordHash  String?         @db.Text
   accounts      Account[]
   sessions      Session[]
   Order         Order[]
   GymAdmin      GymAdmin[]
   ButcherAdmin  ButcherAdmin?
+  GymSettlement GymSettlement[]
 }
 
 model Account {
@@ -198,10 +199,15 @@ model Order {
   user  User        @relation(fields: [userId], references: [id])
   lines OrderLine[]
 
+  gymSettlementId String?
+  gymSettlement   GymSettlement? @relation(fields: [gymSettlementId], references: [id])
+
   pickupGym Gym? @relation("GymOrders", fields: [pickupGymId], references: [id])
 
   @@index([state])
   @@index([createdAt])
+  @@index([pickupGymId])
+  @@index([gymSettlementId])
 }
 
 model OrderLine {
@@ -235,9 +241,10 @@ model Gym {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now())
 
-  admins GymAdmin[]
+  admins        GymAdmin[]
   // Backref to orders (via Order.pickupGymId)
-  orders Order[]    @relation("GymOrders")
+  orders        Order[]         @relation("GymOrders")
+  GymSettlement GymSettlement[]
 
   @@index([active])
   @@index([name])
@@ -261,4 +268,18 @@ model ButcherAdmin {
   userId String @unique
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model GymSettlement {
+  id              String   @id @default(cuid())
+  gymId           String
+  createdAt       DateTime @default(now())
+  createdByUserId String
+  totalCents      Int      @default(0)
+
+  gym       Gym     @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  createdBy User    @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+  orders    Order[]
+
+  @@index([gymId, createdAt])
 }
