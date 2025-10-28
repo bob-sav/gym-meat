@@ -20,7 +20,7 @@ type Line = {
   species: string;
   part: string | null;
   variantSizeGrams: number | null;
-  optionsJson?: any;
+  prepLabels: string[];
 };
 
 type Order = {
@@ -34,27 +34,50 @@ type Order = {
   lines: Line[];
 };
 
-const COLS: { key: OrderState; title: string }[] = [
-  { key: "IN_TRANSIT", title: "On the Way" },
-  { key: "AT_GYM", title: "At Gym" },
+// Which next states a gym-admin may set
+const CAN_GO: Record<OrderState, OrderState[]> = {
+  IN_TRANSIT: ["AT_GYM"],
+  AT_GYM: ["PICKED_UP", "CANCELLED"],
+  // others are not changeable from gym-admin UI
+  PENDING: [],
+  PREPARING: [],
+  READY_FOR_DELIVERY: [],
+  PICKED_UP: [],
+  CANCELLED: [],
+};
+
+const ALL_STATE_ORDER: OrderState[] = [
+  "IN_TRANSIT",
+  "AT_GYM",
+  "PICKED_UP",
+  "CANCELLED",
 ];
 
 export default function GymAdminPage() {
+  // Filters
+  const [states, setStates] = useState<OrderState[]>(["IN_TRANSIT", "AT_GYM"]);
+  const [poll, setPoll] = useState(true);
+  const [search, setSearch] = useState("");
+
+  // Data
   const [items, setItems] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const [showCompleted, setShowCompleted] = useState(false);
-  const [poll, setPoll] = useState(true);
-  const [search, setSearch] = useState("");
+  // Build query string from selected states
+  const queryString = useMemo(() => {
+    const sp = new URLSearchParams();
+    for (const s of states) sp.append("state", s);
+    return `?${sp.toString()}`;
+  }, [states]);
 
   const load = useCallback(async () => {
     try {
-      setLoading(true);
       setErr(null);
-
-      const qs = showCompleted ? "?state=PICKED_UP" : "";
-      const r = await fetch(`/api/gym/orders${qs}`, { cache: "no-store" });
+      setLoading(true);
+      const r = await fetch(`/api/gym/orders${queryString}`, {
+        cache: "no-store",
+      });
       if (!r.ok) throw new Error(r.statusText);
       const j = await r.json();
       setItems(j.items || []);
@@ -63,7 +86,7 @@ export default function GymAdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [showCompleted]);
+  }, [queryString]);
 
   useEffect(() => {
     load();
@@ -75,37 +98,40 @@ export default function GymAdminPage() {
     return () => clearInterval(t);
   }, [poll, load]);
 
+  // Client-side search filter (code/product/prep)
   const filtered = useMemo(() => {
-    let arr = items.slice();
-    if (search) {
-      const s = search.toLowerCase();
-      arr = arr.filter(
-        (o) =>
-          o.shortCode.includes(s) ||
-          o.lines.some((l) => l.productName.toLowerCase().includes(s))
-      );
-    }
-    return arr;
+    if (!search) return items;
+    const s = search.toLowerCase();
+    return items.filter(
+      (o) =>
+        o.shortCode.includes(s) ||
+        o.lines.some(
+          (l) =>
+            l.productName.toLowerCase().includes(s) ||
+            (l.prepLabels || []).some((p) => p.toLowerCase().includes(s))
+        )
+    );
   }, [items, search]);
 
+  // Group by state for columns (only render columns the user selected)
   const byState = useMemo(() => {
-    const groups: Record<OrderState, Order[]> = {
-      PENDING: [],
-      PREPARING: [],
-      READY_FOR_DELIVERY: [],
-      IN_TRANSIT: [],
-      AT_GYM: [],
-      PICKED_UP: [],
-      CANCELLED: [],
-    };
-    for (const o of filtered) groups[o.state].push(o);
-    return groups;
+    const m = new Map<OrderState, Order[]>();
+    for (const st of ALL_STATE_ORDER) m.set(st, []);
+    for (const o of filtered) {
+      const arr = m.get(o.state);
+      if (arr) arr.push(o);
+    }
+    return m;
   }, [filtered]);
 
-  async function move(
-    orderId: string,
-    next: "AT_GYM" | "PICKED_UP" | "CANCELLED"
-  ) {
+  // Toggle a state chip in the toolbar
+  function toggleState(s: OrderState) {
+    setStates((prev) =>
+      prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]
+    );
+  }
+
+  async function move(orderId: string, next: OrderState) {
     try {
       const r = await fetch(`/api/gym/orders/${orderId}/state`, {
         method: "PATCH",
@@ -123,9 +149,11 @@ export default function GymAdminPage() {
     }
   }
 
+  const visibleStates = ALL_STATE_ORDER.filter((s) => states.includes(s));
+
   return (
     <main style={{ maxWidth: 1200, margin: "2rem auto", padding: 16 }}>
-      <h1 style={{ fontSize: 24, marginBottom: 12 }}>Gym Admin · Orders</h1>
+      <h1 style={{ fontSize: 24, marginBottom: 12 }}>Gym Admin</h1>
 
       {/* Toolbar */}
       <div
@@ -137,14 +165,22 @@ export default function GymAdminPage() {
           marginBottom: 12,
         }}
       >
-        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <input
-            type="checkbox"
-            checked={showCompleted}
-            onChange={(e) => setShowCompleted(e.target.checked)}
-          />
-          Show Completed
-        </label>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {ALL_STATE_ORDER.map((s) => {
+            const on = states.includes(s);
+            return (
+              <button
+                key={s}
+                className="my_button"
+                style={{ background: on ? "#ec1818ff" : "#2306ff" }}
+                onClick={() => toggleState(s)}
+                title={`Toggle ${s}`}
+              >
+                {s.replaceAll("_", " ")}
+              </button>
+            );
+          })}
+        </div>
 
         <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <input
@@ -156,7 +192,7 @@ export default function GymAdminPage() {
         </label>
 
         <input
-          placeholder="Search code / product"
+          placeholder="Search code / product / prep"
           className="border p-2 rounded"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -171,26 +207,27 @@ export default function GymAdminPage() {
       {err && <div style={{ color: "crimson" }}>Error: {err}</div>}
       {loading && <div>Loading…</div>}
 
-      {/* Two main columns */}
-      {!showCompleted ? (
-        <div
-          style={{
-            display: "grid",
-            gap: 12,
-            gridTemplateColumns: "repeat(2, minmax(0,1fr))",
-          }}
-        >
-          {COLS.map((col) => (
-            <section key={col.key} className="border rounded p-2">
+      {/* Columns */}
+      <div
+        style={{
+          display: "grid",
+          gap: 12,
+          gridTemplateColumns: `repeat(${
+            visibleStates.length || 1
+          }, minmax(0,1fr))`,
+        }}
+      >
+        {visibleStates.map((stateKey) => {
+          const list = byState.get(stateKey) ?? [];
+          return (
+            <section key={stateKey} className="border rounded p-2">
               <h2 style={{ fontSize: 18, marginBottom: 8 }}>
-                {col.title}{" "}
-                <span style={{ color: "#666" }}>
-                  ({byState[col.key].length})
-                </span>
+                {stateKey.replaceAll("_", " ")}{" "}
+                <span style={{ color: "#666" }}>({list.length})</span>
               </h2>
 
               <div style={{ display: "grid", gap: 8 }}>
-                {byState[col.key].map((o) => (
+                {list.map((o) => (
                   <article key={o.id} className="border p-2 rounded">
                     <div
                       style={{
@@ -201,9 +238,7 @@ export default function GymAdminPage() {
                     >
                       <div>
                         <b>#{o.shortCode}</b>{" "}
-                        <span style={{ color: "#666" }}>
-                          · {o.pickupGymName ?? "—"}
-                        </span>
+                        {o.pickupGymName ? `· ${o.pickupGymName}` : ""}
                       </div>
                       <div style={{ color: "#666", fontSize: 12 }}>
                         {new Date(o.createdAt).toLocaleString()}
@@ -219,83 +254,33 @@ export default function GymAdminPage() {
                             ? ` · ${l.variantSizeGrams}g`
                             : ""}
                           {l.part ? ` · ${l.part}` : ""}
+                          {!!l.prepLabels?.length
+                            ? ` · Prep: ${l.prepLabels.join(", ")}`
+                            : ""}
                         </li>
                       ))}
                     </ul>
 
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      {o.state === "IN_TRANSIT" && (
+                      {(CAN_GO[o.state] || []).map((ns) => (
                         <button
+                          key={ns}
                           className="my_button"
-                          onClick={() => move(o.id, "AT_GYM")}
+                          onClick={() => move(o.id, ns)}
                         >
-                          Mark Arrived
+                          {ns === "AT_GYM" && "Mark Arrived"}
+                          {ns === "PICKED_UP" && "Mark Picked Up"}
+                          {ns === "CANCELLED" && "Cancel"}
                         </button>
-                      )}
-                      {o.state === "AT_GYM" && (
-                        <>
-                          <button
-                            className="my_button"
-                            onClick={() => move(o.id, "PICKED_UP")}
-                          >
-                            Picked Up
-                          </button>
-                          <button
-                            className="my_button"
-                            onClick={() => move(o.id, "CANCELLED")}
-                          >
-                            Cancel
-                          </button>
-                        </>
-                      )}
+                      ))}
                     </div>
                   </article>
                 ))}
               </div>
             </section>
-          ))}
-        </div>
-      ) : (
-        // Completed list
-        <section className="border rounded p-2">
-          <h2 style={{ fontSize: 18, marginBottom: 8 }}>
-            Completed (Picked Up)
-          </h2>
-          <div style={{ display: "grid", gap: 8 }}>
-            {byState.PICKED_UP.map((o) => (
-              <article key={o.id} className="border p-2 rounded">
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 8,
-                  }}
-                >
-                  <div>
-                    <b>#{o.shortCode}</b>{" "}
-                    <span style={{ color: "#666" }}>
-                      · {o.pickupGymName ?? "—"}
-                    </span>
-                  </div>
-                  <div style={{ color: "#666", fontSize: 12 }}>
-                    {new Date(o.createdAt).toLocaleString()}
-                  </div>
-                </div>
-                <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
-                  {o.lines.map((l) => (
-                    <li key={l.id}>
-                      {l.qty}× {l.productName}
-                      {l.unitLabel ? ` · ${l.unitLabel}` : ""}
-                      {l.variantSizeGrams ? ` · ${l.variantSizeGrams}g` : ""}
-                      {l.part ? ` · ${l.part}` : ""}
-                    </li>
-                  ))}
-                </ul>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
+          );
+        })}
+      </div>
     </main>
   );
 }
