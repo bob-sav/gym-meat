@@ -120,13 +120,43 @@ export default function GymAdminPage() {
     }
   }, []);
 
+  const loadHistory = useCallback(async () => {
+    if (!showHistory) return;
+
+    // Super-admin must pick a gym first
+    if (gyms.length > 1 && !selectedGymId) {
+      setSettlements([]);
+      return;
+    }
+
+    try {
+      setLoadingHistory(true);
+      const chosenGymId =
+        gyms.length > 1 ? selectedGymId : gyms[0]?.id || undefined;
+
+      const qs = chosenGymId ? `?gymId=${encodeURIComponent(chosenGymId)}` : "";
+      const r = await fetch(`/api/gym/settlements/list${qs}`, {
+        cache: "no-store",
+      });
+      if (!r.ok) return;
+      const j = await r.json();
+      setSettlements(j.items || []);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [gyms, selectedGymId, showHistory]);
+
   const load = useCallback(async () => {
     try {
       setErr(null);
       setLoading(true);
 
-      // we always load both “left” states and “right” states from the same endpoint
-      // (the board will bucket them)
+      // Super-admin must pick a gym first
+      if (gyms.length > 1 && !selectedGymId) {
+        setItems([]);
+        return;
+      }
+
       const states = [
         "PENDING",
         "PREPARING",
@@ -136,12 +166,11 @@ export default function GymAdminPage() {
         "PICKED_UP",
       ].join(",");
 
-      const qs =
-        selectedGymId && selectedGymId.length
-          ? `?states=${encodeURIComponent(states)}&gymId=${encodeURIComponent(
-              selectedGymId
-            )}`
-          : `?states=${encodeURIComponent(states)}`;
+      const qs = (gyms.length > 1 ? selectedGymId : gyms[0]?.id)
+        ? `?states=${encodeURIComponent(states)}&gymId=${encodeURIComponent(
+            gyms.length > 1 ? selectedGymId : gyms[0]?.id || ""
+          )}`
+        : `?states=${encodeURIComponent(states)}`;
 
       const r = await fetch(`/api/gym/orders${qs}`, { cache: "no-store" });
       if (!r.ok) throw new Error(r.statusText);
@@ -152,26 +181,7 @@ export default function GymAdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedGymId]);
-
-  const loadHistory = useCallback(async () => {
-    if (!showHistory) return;
-    try {
-      setLoadingHistory(true);
-      const qs =
-        selectedGymId && selectedGymId.length
-          ? `?gymId=${encodeURIComponent(selectedGymId)}`
-          : "";
-      const r = await fetch(`/api/gym/settlements/list${qs}`, {
-        cache: "no-store",
-      });
-      if (!r.ok) return;
-      const j = await r.json();
-      setSettlements(j.items || []);
-    } finally {
-      setLoadingHistory(false);
-    }
-  }, [selectedGymId, showHistory]);
+  }, [gyms, selectedGymId]);
 
   // initial gyms + initial data
   useEffect(() => {
@@ -230,6 +240,11 @@ export default function GymAdminPage() {
     orderId: string,
     next: "AT_GYM" | "PICKED_UP" | "CANCELLED"
   ) {
+    // Require a gym choice for super-admins
+    if (gyms.length > 1 && !selectedGymId) {
+      alert("Please select a gym first.");
+      return;
+    }
     try {
       const r = await fetch(`/api/gym/orders/${orderId}/state`, {
         method: "PATCH",
@@ -248,9 +263,18 @@ export default function GymAdminPage() {
   }
 
   async function settleNow() {
+    // Require a gym choice for super-admins
+    if (gyms.length > 1 && !selectedGymId) {
+      alert("Please select a gym first.");
+      return;
+    }
     try {
       const body =
-        selectedGymId && selectedGymId.length ? { gymId: selectedGymId } : {}; // API will infer if only one permitted
+        gyms.length > 1
+          ? { gymId: selectedGymId }
+          : gyms[0]?.id
+          ? { gymId: gyms[0].id }
+          : {};
 
       const r = await fetch("/api/gym/settlements", {
         method: "POST",
@@ -262,7 +286,6 @@ export default function GymAdminPage() {
         alert(j?.error ?? r.statusText);
         return;
       }
-      // refresh both orders & history
       await load();
       await loadHistory();
       alert(
@@ -277,7 +300,17 @@ export default function GymAdminPage() {
 
   return (
     <main style={{ maxWidth: 1200, margin: "2rem auto", padding: 16 }}>
-      <h1 style={{ fontSize: 24, marginBottom: 12 }}>Gym Admin</h1>
+      <h1 style={{ fontSize: 24, marginBottom: 12 }}>
+        Gym Admin
+        {selectedGymId
+          ? (() => {
+              const g = gyms.find((x) => x.id === selectedGymId);
+              return g ? ` · ${g.name}` : "";
+            })()
+          : gyms.length === 1
+          ? ` · ${gyms[0].name}`
+          : ""}
+      </h1>
 
       {/* Toolbar */}
       <div
@@ -289,20 +322,33 @@ export default function GymAdminPage() {
           marginBottom: 12,
         }}
       >
-        {/* Gym selector only if multiple gyms */}
-        {gyms.length > 1 && (
-          <select
-            className="border p-2 rounded"
-            value={selectedGymId}
-            onChange={(e) => setSelectedGymId(e.target.value)}
-          >
-            <option value="">All permitted gyms</option>
-            {gyms.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.name}
-              </option>
-            ))}
-          </select>
+        {/* Super-admin (multiple gyms): must pick a gym */}
+        {gyms.length > 1 ? (
+          <>
+            <select
+              className="border p-2 rounded"
+              value={selectedGymId}
+              onChange={(e) => setSelectedGymId(e.target.value)}
+            >
+              <option value="">— Select a gym —</option>
+              {gyms.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+
+            {!selectedGymId && (
+              <span style={{ color: "#b45309" }}>
+                Select a gym to view and act on its orders.
+              </span>
+            )}
+          </>
+        ) : (
+          // Normal admin (one gym): show label only
+          gyms.length === 1 && (
+            <span style={{ fontWeight: 600 }}>Gym: {gyms[0].name}</span>
+          )
         )}
 
         <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -310,6 +356,7 @@ export default function GymAdminPage() {
             type="checkbox"
             checked={poll}
             onChange={(e) => setPoll(e.target.checked)}
+            disabled={gyms.length > 1 && !selectedGymId}
           />
           Auto-refresh
         </label>
@@ -319,11 +366,16 @@ export default function GymAdminPage() {
             type="checkbox"
             checked={showHistory}
             onChange={(e) => setShowHistory(e.target.checked)}
+            disabled={gyms.length > 1 && !selectedGymId}
           />
           Show history
         </label>
 
-        <button className="my_button" onClick={load}>
+        <button
+          className="my_button"
+          onClick={load}
+          disabled={gyms.length > 1 && !selectedGymId}
+        >
           Refresh
         </button>
       </div>
@@ -441,7 +493,9 @@ export default function GymAdminPage() {
                         className="my_button"
                         onClick={() => move(o.id, "AT_GYM")}
                         title="Mark the order as arrived"
-                        disabled={!canArrive}
+                        disabled={
+                          (gyms.length > 1 && !selectedGymId) || !canArrive
+                        }
                       >
                         Arrived
                       </button>
@@ -491,6 +545,7 @@ export default function GymAdminPage() {
                     className="my_button"
                     onClick={() => move(o.id, "PICKED_UP")}
                     title="Customer picked up"
+                    disabled={gyms.length > 1 && !selectedGymId}
                   >
                     Picked up
                   </button>
@@ -498,6 +553,7 @@ export default function GymAdminPage() {
                     className="my_button"
                     onClick={() => move(o.id, "CANCELLED")}
                     title="Order cancelled"
+                    disabled={gyms.length > 1 && !selectedGymId}
                   >
                     Cancel
                   </button>
@@ -573,12 +629,17 @@ export default function GymAdminPage() {
                 </div>
                 <button
                   className="my_button"
-                  disabled={completedUnsettled.length === 0}
+                  disabled={
+                    (gyms.length > 1 && !selectedGymId) ||
+                    completedUnsettled.length === 0
+                  }
                   onClick={settleNow}
                   title={
-                    selectedGymId
-                      ? `Settle for selected gym`
-                      : `Settle for permitted gym(s)`
+                    gyms.length > 1
+                      ? selectedGymId
+                        ? "Settle for selected gym"
+                        : "Select a gym"
+                      : "Settle"
                   }
                 >
                   Settle & Clear
