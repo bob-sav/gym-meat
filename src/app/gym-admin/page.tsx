@@ -204,31 +204,67 @@ export default function GymAdminPage() {
     return () => clearInterval(t);
   }, [poll, load]);
 
+  // Which gym is active for this view?
+  const activeGymId = gyms.length > 1 ? selectedGymId || "" : gyms[0]?.id || "";
+
+  const activeGymName =
+    gyms.length > 1
+      ? gyms.find((g) => g.id === selectedGymId)?.name || ""
+      : gyms[0]?.name || "";
+
+  // Filter all orders client-side by the active gym.
+  // NOTE: Our Order type doesn't include pickupGymId; if your API starts returning it,
+  // this will use it. Otherwise we fall back to matching by pickupGymName.
+  const filteredItems = useMemo(() => {
+    if (!activeGymId && gyms.length > 1) return []; // super-admin must choose a gym
+    if (!activeGymId) return items; // single-gym admin
+
+    return items.filter((o: any) => {
+      // Prefer exact id match (if present in payload)
+      if (o?.pickupGymId) return o.pickupGymId === activeGymId;
+      // Fallback: match by name (case-insensitive) if id not present
+      if (activeGymName && o?.pickupGymName) {
+        return (
+          String(o.pickupGymName).toLowerCase() === activeGymName.toLowerCase()
+        );
+      }
+      return false;
+    });
+  }, [items, gyms, activeGymId, activeGymName]);
+
   // Buckets
   const upcoming = useMemo(
     () =>
-      items.filter(
+      filteredItems.filter(
         (o) =>
           o.state === "PENDING" ||
           o.state === "PREPARING" ||
           o.state === "READY_FOR_DELIVERY"
       ),
-    [items]
+    [filteredItems]
   );
 
   const inTransit = useMemo(
-    () => items.filter((o) => o.state === "IN_TRANSIT"),
-    [items]
+    () => filteredItems.filter((o) => o.state === "IN_TRANSIT"),
+    [filteredItems]
   );
 
   const atGym = useMemo(
-    () => items.filter((o) => o.state === "AT_GYM"),
-    [items]
+    () => filteredItems.filter((o) => o.state === "AT_GYM"),
+    [filteredItems]
+  );
+
+  const pickedUp = useMemo(
+    () => filteredItems.filter((o) => o.state === "PICKED_UP"),
+    [filteredItems]
   );
 
   const completedUnsettled = useMemo(
-    () => items.filter((o) => o.state === "PICKED_UP" && !o.gymSettlementId),
-    [items]
+    () =>
+      filteredItems.filter(
+        (o) => o.state === "PICKED_UP" && !o.gymSettlementId
+      ),
+    [filteredItems]
   );
 
   const unsettledTotalCents = useMemo(
@@ -301,15 +337,7 @@ export default function GymAdminPage() {
   return (
     <main style={{ maxWidth: 1200, margin: "2rem auto", padding: 16 }}>
       <h1 style={{ fontSize: 24, marginBottom: 12 }}>
-        Gym Admin
-        {selectedGymId
-          ? (() => {
-              const g = gyms.find((x) => x.id === selectedGymId);
-              return g ? ` · ${g.name}` : "";
-            })()
-          : gyms.length === 1
-          ? ` · ${gyms[0].name}`
-          : ""}
+        Gym Admin{activeGymName ? ` · ${activeGymName}` : ""}
       </h1>
 
       {/* Toolbar */}
@@ -493,9 +521,7 @@ export default function GymAdminPage() {
                         className="my_button"
                         onClick={() => move(o.id, "AT_GYM")}
                         title="Mark the order as arrived"
-                        disabled={
-                          (gyms.length > 1 && !selectedGymId) || !canArrive
-                        }
+                        disabled={gyms.length > 1 && !activeGymId}
                       >
                         Arrived
                       </button>
@@ -545,7 +571,7 @@ export default function GymAdminPage() {
                     className="my_button"
                     onClick={() => move(o.id, "PICKED_UP")}
                     title="Customer picked up"
-                    disabled={gyms.length > 1 && !selectedGymId}
+                    disabled={gyms.length > 1 && !activeGymId}
                   >
                     Picked up
                   </button>
@@ -553,7 +579,7 @@ export default function GymAdminPage() {
                     className="my_button"
                     onClick={() => move(o.id, "CANCELLED")}
                     title="Order cancelled"
-                    disabled={gyms.length > 1 && !selectedGymId}
+                    disabled={gyms.length > 1 && !activeGymId}
                   >
                     Cancel
                   </button>
@@ -629,14 +655,14 @@ export default function GymAdminPage() {
                 </div>
                 <button
                   className="my_button"
+                  onClick={settleNow}
                   disabled={
-                    (gyms.length > 1 && !selectedGymId) ||
+                    (gyms.length > 1 && !activeGymId) ||
                     completedUnsettled.length === 0
                   }
-                  onClick={settleNow}
                   title={
                     gyms.length > 1
-                      ? selectedGymId
+                      ? activeGymId
                         ? "Settle for selected gym"
                         : "Select a gym"
                       : "Settle"
