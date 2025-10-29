@@ -37,7 +37,9 @@ export async function GET(req: Request) {
       id: true,
       gymId: true,
       totalCents: true,
+      orderCount: true,
       createdAt: true,
+      createdBy: { select: { id: true, email: true, name: true } },
       orders: { select: { id: true, shortCode: true, totalCents: true } },
     },
   });

@@ -275,6 +275,7 @@ model GymSettlement {
   gymId           String
   createdAt       DateTime @default(now())
   createdByUserId String
+  orderCount      Int
   totalCents      Int      @default(0)
 
   gym       Gym     @relation(fields: [gymId], references: [id], onDelete: Cascade)

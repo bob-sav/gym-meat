@@ -39,6 +39,8 @@ export default function GymAdminPage() {
   const [items, setItems] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [gyms, setGyms] = useState<{ id: string; name: string }[]>([]);
+  const [selectedGymId, setSelectedGymId] = useState<string>("");
 
   const [poll, setPoll] = useState(true);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -51,12 +53,16 @@ export default function GymAdminPage() {
       if (!r.ok) throw new Error(r.statusText);
       const j = await r.json();
       setItems(j.items || []);
+      setGyms(j.gyms || []);
+      if (!selectedGymId && j.gyms?.length === 1) {
+        setSelectedGymId(j.gyms[0].id);
+      }
     } catch (e: any) {
       setErr(e?.message ?? String(e));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedGymId]);
 
   useEffect(() => {
     load();
@@ -139,10 +145,13 @@ export default function GymAdminPage() {
 
   async function closeRemittance() {
     try {
+      const body: any = {};
+      if (selectedGymId) body.gymId = selectedGymId;
+
       const r = await fetch("/api/gym/settlements", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gymId: "<optional specific gym>" }),
+        body: JSON.stringify(body),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -222,6 +231,21 @@ export default function GymAdminPage() {
           />
           Show completed (unsettled)
         </label>
+
+        {gyms.length > 1 && (
+          <select
+            className="border p-2 rounded"
+            value={selectedGymId}
+            onChange={(e) => setSelectedGymId(e.target.value)}
+          >
+            <option value="">Select gym for settlement…</option>
+            {gyms.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+              </option>
+            ))}
+          </select>
+        )}
 
         <button className="my_button" onClick={load}>
           Refresh
