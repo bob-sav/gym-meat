@@ -437,7 +437,7 @@ export default function GymAdminPage() {
                       ))}
                     </ul>
                     <div style={{ color: "#666", fontSize: 12 }}>
-                      Pickup: {o.pickupGymName ?? "—"}
+                      Pickup: {o.pickupGymName || "—"}
                     </div>
                     <div>
                       <b>Total:</b> {(o.totalCents / 100).toFixed(2)} €

@@ -42,6 +42,16 @@ export async function POST(req: NextRequest) {
         ? body.notes.trim()
         : undefined;
 
+    // Resolve gym name server-side if we have an ID
+    let resolvedPickupGymName: string | null = null;
+    if (pickupGymId) {
+      const gym = await prisma.gym.findUnique({
+        where: { id: pickupGymId },
+        select: { name: true },
+      });
+      resolvedPickupGymName = gym?.name ?? null;
+    }
+
     // Accept ISO or datetime-local and coerce safely
     let pickupWhen: Date | null = null;
     if (typeof body.pickupWhen === "string" && body.pickupWhen.trim() !== "") {
@@ -80,7 +90,7 @@ export async function POST(req: NextRequest) {
           shortCode,
           state: "PENDING",
           pickupGymId: pickupGymId ?? null,
-          pickupGymName: pickupGymName ?? null,
+          pickupGymName: resolvedPickupGymName ?? pickupGymName ?? null,
           pickupWhen,
           subtotalCents: totals.subtotalCents,
           totalCents: totals.totalCents,
