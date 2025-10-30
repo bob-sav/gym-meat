@@ -1,3 +1,4 @@
+// src/app/gym-admin/page.tsx
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -70,7 +71,7 @@ function Badge({ s }: { s: OrderState }) {
       ? "#22c55e"
       : s === "PICKED_UP"
       ? "#16a34a"
-      : "#ef4444"; // CANCELLED
+      : "#ef4444";
   return (
     <span
       style={{
@@ -99,59 +100,41 @@ export default function GymAdminPage() {
   const [poll, setPoll] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
 
-  // History data (right column when showHistory = true)
+  // History data
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // Load gyms the user can admin (kept simple: use /api/gym and take active ones)
+  // Helpers
+  const hasMultiGyms = gyms.length > 1;
+  const activeGymName = hasMultiGyms
+    ? gyms.find((g) => g.id === selectedGymId)?.name || ""
+    : gyms[0]?.name || "";
+
+  // Load gyms the user can admin
   const loadGyms = useCallback(async () => {
     try {
-      const r = await fetch("/api/gym", { cache: "no-store" });
-      if (!r.ok) return; // ignore silently
+      // inside loadGyms()
+      const r = await fetch("/api/gym?scope=my", { cache: "no-store" });
+
+      if (!r.ok) return;
       const j = await r.json();
       const list: GymLite[] = (j.items || [])
         .filter((g: any) => g.active)
         .map((g: any) => ({ id: g.id, name: g.name }));
       setGyms(list);
-      // if only one gym, auto select
       if (list.length === 1) setSelectedGymId(list[0].id);
     } catch {
       // ignore
     }
   }, []);
 
-  const loadHistory = useCallback(async () => {
-    if (!showHistory) return;
-
-    // Super-admin must pick a gym first
-    if (gyms.length > 1 && !selectedGymId) {
-      setSettlements([]);
-      return;
-    }
-
-    try {
-      setLoadingHistory(true);
-      const chosenGymId =
-        gyms.length > 1 ? selectedGymId : gyms[0]?.id || undefined;
-
-      const qs = chosenGymId ? `?gymId=${encodeURIComponent(chosenGymId)}` : "";
-      const r = await fetch(`/api/gym/settlements/list${qs}`, {
-        cache: "no-store",
-      });
-      if (!r.ok) return;
-      const j = await r.json();
-      setSettlements(j.items || []);
-    } finally {
-      setLoadingHistory(false);
-    }
-  }, [gyms, selectedGymId, showHistory]);
-
+  // Load orders for the chosen (or only) gym
   const load = useCallback(async () => {
     try {
       setErr(null);
       setLoading(true);
 
-      // Super-admin must pick a gym first
+      // Multi-gym admin must choose
       if (gyms.length > 1 && !selectedGymId) {
         setItems([]);
         return;
@@ -166,9 +149,12 @@ export default function GymAdminPage() {
         "PICKED_UP",
       ].join(",");
 
-      const qs = (gyms.length > 1 ? selectedGymId : gyms[0]?.id)
+      const gymIdParam =
+        gyms.length > 1 ? selectedGymId : gyms[0]?.id || undefined;
+
+      const qs = gymIdParam
         ? `?states=${encodeURIComponent(states)}&gymId=${encodeURIComponent(
-            gyms.length > 1 ? selectedGymId : gyms[0]?.id || ""
+            gymIdParam
           )}`
         : `?states=${encodeURIComponent(states)}`;
 
@@ -183,7 +169,33 @@ export default function GymAdminPage() {
     }
   }, [gyms, selectedGymId]);
 
-  // initial gyms + initial data
+  // Load settlement history (optional right column)
+  const loadHistory = useCallback(async () => {
+    if (!showHistory) return;
+
+    if (gyms.length > 1 && !selectedGymId) {
+      setSettlements([]);
+      return;
+    }
+
+    try {
+      setLoadingHistory(true);
+      const gymIdParam =
+        gyms.length > 1 ? selectedGymId : gyms[0]?.id || undefined;
+
+      const qs = gymIdParam ? `?gymId=${encodeURIComponent(gymIdParam)}` : "";
+      const r = await fetch(`/api/gym/settlements/list${qs}`, {
+        cache: "no-store",
+      });
+      if (!r.ok) return;
+      const j = await r.json();
+      setSettlements(j.items || []);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [gyms, selectedGymId, showHistory]);
+
+  // Initial load
   useEffect(() => {
     loadGyms();
   }, [loadGyms]);
@@ -192,79 +204,42 @@ export default function GymAdminPage() {
     load();
   }, [load]);
 
-  // history loader on toggle/gym change
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
 
-  // polling
+  // Polling
   useEffect(() => {
     if (!poll) return;
     const t = setInterval(load, 10_000);
     return () => clearInterval(t);
   }, [poll, load]);
 
-  // Which gym is active for this view?
-  const activeGymId = gyms.length > 1 ? selectedGymId || "" : gyms[0]?.id || "";
-
-  const activeGymName =
-    gyms.length > 1
-      ? gyms.find((g) => g.id === selectedGymId)?.name || ""
-      : gyms[0]?.name || "";
-
-  // Filter all orders client-side by the active gym.
-  // NOTE: Our Order type doesn't include pickupGymId; if your API starts returning it,
-  // this will use it. Otherwise we fall back to matching by pickupGymName.
-  const filteredItems = useMemo(() => {
-    if (!activeGymId && gyms.length > 1) return []; // super-admin must choose a gym
-    if (!activeGymId) return items; // single-gym admin
-
-    return items.filter((o: any) => {
-      // Prefer exact id match (if present in payload)
-      if (o?.pickupGymId) return o.pickupGymId === activeGymId;
-      // Fallback: match by name (case-insensitive) if id not present
-      if (activeGymName && o?.pickupGymName) {
-        return (
-          String(o.pickupGymName).toLowerCase() === activeGymName.toLowerCase()
-        );
-      }
-      return false;
-    });
-  }, [items, gyms, activeGymId, activeGymName]);
-
-  // Buckets
+  // Buckets (use items as-is; server already filtered by gym)
   const upcoming = useMemo(
     () =>
-      filteredItems.filter(
+      items.filter(
         (o) =>
           o.state === "PENDING" ||
           o.state === "PREPARING" ||
           o.state === "READY_FOR_DELIVERY"
       ),
-    [filteredItems]
+    [items]
   );
 
   const inTransit = useMemo(
-    () => filteredItems.filter((o) => o.state === "IN_TRANSIT"),
-    [filteredItems]
+    () => items.filter((o) => o.state === "IN_TRANSIT"),
+    [items]
   );
 
   const atGym = useMemo(
-    () => filteredItems.filter((o) => o.state === "AT_GYM"),
-    [filteredItems]
-  );
-
-  const pickedUp = useMemo(
-    () => filteredItems.filter((o) => o.state === "PICKED_UP"),
-    [filteredItems]
+    () => items.filter((o) => o.state === "AT_GYM"),
+    [items]
   );
 
   const completedUnsettled = useMemo(
-    () =>
-      filteredItems.filter(
-        (o) => o.state === "PICKED_UP" && !o.gymSettlementId
-      ),
-    [filteredItems]
+    () => items.filter((o) => o.state === "PICKED_UP" && !o.gymSettlementId),
+    [items]
   );
 
   const unsettledTotalCents = useMemo(
@@ -276,7 +251,6 @@ export default function GymAdminPage() {
     orderId: string,
     next: "AT_GYM" | "PICKED_UP" | "CANCELLED"
   ) {
-    // Require a gym choice for super-admins
     if (gyms.length > 1 && !selectedGymId) {
       alert("Please select a gym first.");
       return;
@@ -299,7 +273,6 @@ export default function GymAdminPage() {
   }
 
   async function settleNow() {
-    // Require a gym choice for super-admins
     if (gyms.length > 1 && !selectedGymId) {
       alert("Please select a gym first.");
       return;
@@ -350,7 +323,6 @@ export default function GymAdminPage() {
           marginBottom: 12,
         }}
       >
-        {/* Super-admin (multiple gyms): must pick a gym */}
         {gyms.length > 1 ? (
           <>
             <select
@@ -365,7 +337,6 @@ export default function GymAdminPage() {
                 </option>
               ))}
             </select>
-
             {!selectedGymId && (
               <span style={{ color: "#b45309" }}>
                 Select a gym to view and act on its orders.
@@ -373,7 +344,6 @@ export default function GymAdminPage() {
             )}
           </>
         ) : (
-          // Normal admin (one gym): show label only
           gyms.length === 1 && (
             <span style={{ fontWeight: 600 }}>Gym: {gyms[0].name}</span>
           )
@@ -421,7 +391,7 @@ export default function GymAdminPage() {
           gridTemplateColumns: "repeat(3, minmax(0,1fr))",
         }}
       >
-        {/* LEFT: Upcoming (read-only) + In Transit (actionable) */}
+        {/* LEFT: Incoming + In-Transit */}
         <section className="border rounded p-2">
           <h2 style={{ fontSize: 18, marginBottom: 8 }}>
             Incoming & In-Transit{" "}
@@ -430,7 +400,6 @@ export default function GymAdminPage() {
             </span>
           </h2>
 
-          {/* Upcoming */}
           {!!upcoming.length && (
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontWeight: 600, margin: "6px 0" }}>Incoming</div>
@@ -479,7 +448,6 @@ export default function GymAdminPage() {
             </div>
           )}
 
-          {/* In Transit */}
           <div>
             <div style={{ fontWeight: 600, margin: "6px 0" }}>In Transit</div>
             <div style={{ display: "grid", gap: 8 }}>
@@ -521,7 +489,7 @@ export default function GymAdminPage() {
                         className="my_button"
                         onClick={() => move(o.id, "AT_GYM")}
                         title="Mark the order as arrived"
-                        disabled={gyms.length > 1 && !activeGymId}
+                        disabled={gyms.length > 1 && !selectedGymId}
                       >
                         Arrived
                       </button>
@@ -571,7 +539,7 @@ export default function GymAdminPage() {
                     className="my_button"
                     onClick={() => move(o.id, "PICKED_UP")}
                     title="Customer picked up"
-                    disabled={gyms.length > 1 && !activeGymId}
+                    disabled={gyms.length > 1 && !selectedGymId}
                   >
                     Picked up
                   </button>
@@ -579,7 +547,7 @@ export default function GymAdminPage() {
                     className="my_button"
                     onClick={() => move(o.id, "CANCELLED")}
                     title="Order cancelled"
-                    disabled={gyms.length > 1 && !activeGymId}
+                    disabled={gyms.length > 1 && !selectedGymId}
                   >
                     Cancel
                   </button>
@@ -589,7 +557,7 @@ export default function GymAdminPage() {
           </div>
         </section>
 
-        {/* RIGHT: Completed (unsettled) OR History */}
+        {/* RIGHT: Completed (unsettled) or History */}
         <section className="border rounded p-2">
           <h2 style={{ fontSize: 18, marginBottom: 8 }}>
             {showHistory ? "History" : "Completed"}
@@ -597,7 +565,6 @@ export default function GymAdminPage() {
 
           {!showHistory ? (
             <>
-              {/* Completed & unsettled */}
               <div style={{ display: "grid", gap: 8 }}>
                 {completedUnsettled.map((o) => (
                   <article
@@ -638,7 +605,6 @@ export default function GymAdminPage() {
                 ))}
               </div>
 
-              {/* Remittance summary */}
               <div
                 style={{
                   marginTop: 12,
@@ -657,12 +623,12 @@ export default function GymAdminPage() {
                   className="my_button"
                   onClick={settleNow}
                   disabled={
-                    (gyms.length > 1 && !activeGymId) ||
+                    (gyms.length > 1 && !selectedGymId) ||
                     completedUnsettled.length === 0
                   }
                   title={
                     gyms.length > 1
-                      ? activeGymId
+                      ? selectedGymId
                         ? "Settle for selected gym"
                         : "Select a gym"
                       : "Settle"

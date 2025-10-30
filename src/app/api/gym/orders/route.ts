@@ -1,4 +1,3 @@
-// src/app/api/gym/orders/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient, OrderState } from "@prisma/client";
 import { z } from "zod";
@@ -6,8 +5,20 @@ import { auth } from "@/auth";
 
 const prisma = new PrismaClient();
 
-// ...top imports unchanged
-export const dynamic = "force-dynamic";
+const qSchema = z.object({
+  states: z.string().optional(),
+  gymId: z.string().optional(),
+});
+
+const ALLOWED = new Set<OrderState>([
+  "PENDING",
+  "PREPARING",
+  "READY_FOR_DELIVERY",
+  "IN_TRANSIT",
+  "AT_GYM",
+  "PICKED_UP",
+  "CANCELLED",
+]);
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -15,27 +26,50 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ items: [] }, { status: 401 });
   }
 
-  // which gyms the admin can see
-  const adminGyms = await prisma.gymAdmin.findMany({
+  // gyms current user may administer
+  const adminRows = await prisma.gymAdmin.findMany({
     where: { user: { email: session.user.email } },
-    select: { gymId: true, gym: { select: { id: true, name: true } } },
+    select: { gymId: true },
   });
-  const permittedGymIds = adminGyms.map((g) => g.gymId);
+  const permittedGymIds = adminRows.map((r) => r.gymId);
+  if (permittedGymIds.length === 0) {
+    return NextResponse.json({ items: [] }, { status: 403 });
+  }
 
-  // states param (optional)
   const { searchParams } = new URL(req.url);
-  const statesParam = searchParams.get("states") || "";
-  const states = statesParam
+  const parsed = qSchema.safeParse({
+    states: searchParams.get("states") ?? undefined,
+    gymId: searchParams.get("gymId") ?? undefined,
+  });
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Invalid query", details: parsed.error.flatten() },
+      { status: 400 }
+    );
+  }
+
+  // target gyms = specific gym (if permitted) OR all permitted gyms
+  let targetGymIds: string[] = permittedGymIds;
+  if (parsed.data.gymId) {
+    if (!permittedGymIds.includes(parsed.data.gymId)) {
+      // no peeking into other gyms
+      return NextResponse.json({ items: [] }, { status: 403 });
+    }
+    targetGymIds = [parsed.data.gymId];
+  }
+
+  // optional state filtering
+  const statesArr = (parsed.data.states ?? "")
     .split(",")
     .map((s) => s.trim())
-    .filter(Boolean);
+    .filter((s): s is OrderState => ALLOWED.has(s as OrderState));
+
+  const where: any = { pickupGymId: { in: targetGymIds } };
+  if (statesArr.length) where.state = { in: statesArr };
 
   const items = await prisma.order.findMany({
-    where: {
-      pickupGymId: { in: permittedGymIds },
-      ...(states.length ? { state: { in: states as any } } : {}),
-    },
-    orderBy: { createdAt: "desc" },
+    where,
+    orderBy: { createdAt: "asc" },
     select: {
       id: true,
       shortCode: true,
@@ -61,11 +95,5 @@ export async function GET(req: NextRequest) {
     },
   });
 
-  // NEW: return gyms the admin can operate on
-  const gyms = adminGyms.map((g) => ({
-    id: g.gym.id,
-    name: g.gym.name,
-  }));
-
-  return NextResponse.json({ items, gyms });
+  return NextResponse.json({ items });
 }

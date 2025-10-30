@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
 import { auth } from "@/auth";
 
@@ -12,8 +12,7 @@ async function getAdminGymIds(email: string) {
   return rows.map((r) => r.gymId);
 }
 
-// GET /api/gym/settlements/list?gymId=optional
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ items: [] }, { status: 401 });
@@ -36,8 +35,8 @@ export async function GET(req: Request) {
     select: {
       id: true,
       gymId: true,
-      totalCents: true,
       orderCount: true,
+      totalCents: true,
       createdAt: true,
       createdBy: { select: { id: true, email: true, name: true } },
       orders: { select: { id: true, shortCode: true, totalCents: true } },
