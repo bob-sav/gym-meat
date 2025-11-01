@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type LineState = "PENDING" | "PREPARING" | "READY" | "SENT";
 
@@ -22,6 +22,14 @@ type LineItem = {
 
   lineState: LineState;
   indexOf?: { i: number; n: number };
+  orderState:
+    | "PENDING"
+    | "PREPARING"
+    | "READY_FOR_DELIVERY"
+    | "IN_TRANSIT"
+    | "AT_GYM"
+    | "PICKED_UP"
+    | "CANCELLED";
 };
 
 const COLS: { key: LineState; title: string }[] = [
@@ -49,12 +57,17 @@ export default function ButcherBoard() {
   const [poll, setPoll] = useState(true);
   const [speciesFilter, setSpeciesFilter] = useState<string>("");
   const [search, setSearch] = useState("");
+  const [sentSort, setSentSort] = useState<"newest" | "oldest">("newest");
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       setErr(null);
       setLoading(true);
-      const r = await fetch("/api/butcher/lines", { cache: "no-store" });
+      const sentParam = showSent ? "all" : "in_transit";
+      const r = await fetch(`/api/butcher/lines?sent=${sentParam}`, {
+        // <-- backticks
+        cache: "no-store",
+      });
       if (!r.ok) throw new Error(r.statusText);
       const j = await r.json();
 
@@ -74,17 +87,17 @@ export default function ButcherBoard() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [showSent]);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     if (!poll) return;
     const t = setInterval(load, 10_000);
     return () => clearInterval(t);
-  }, [poll]);
+  }, [poll, load]);
 
   // Derived maps for quick checks
   const orderSendable = useMemo(() => {
@@ -106,19 +119,32 @@ export default function ButcherBoard() {
   // Filters
   const filtered = useMemo(() => {
     let arr = items.slice();
-    if (!showSent) arr = arr.filter((l) => l.lineState !== "SENT");
+
+    // NOTE: we no longer filter SENT here; the server already does it via ?sent=...
     if (speciesFilter) arr = arr.filter((l) => l.species === speciesFilter);
+
     if (search) {
       const s = search.toLowerCase();
       arr = arr.filter(
         (l) =>
-          l.shortCode.includes(s) ||
+          l.shortCode.toLowerCase().includes(s) ||
           l.productName.toLowerCase().includes(s) ||
           (l.prepLabels || []).some((p) => p.toLowerCase().includes(s))
       );
     }
     return arr;
-  }, [items, showSent, speciesFilter, search]);
+  }, [items, speciesFilter, search]);
+
+  // Only the SENT cards; sorted for the history view when showSent is ON
+  const sentList = useMemo(() => {
+    const arr = filtered.filter((l) => l.lineState === "SENT").slice();
+    arr.sort((a, b) => {
+      const ta = new Date(a.createdAt).getTime();
+      const tb = new Date(b.createdAt).getTime();
+      return sentSort === "newest" ? tb - ta : ta - tb;
+    });
+    return arr;
+  }, [filtered, sentSort]);
 
   const byState = useMemo(() => {
     const m: Record<LineState, LineItem[]> = {
@@ -173,6 +199,22 @@ export default function ButcherBoard() {
           />
           Show Sent
         </label>
+
+        {showSent && (
+          <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            Sort Sent:
+            <select
+              className="border p-2 rounded"
+              value={sentSort}
+              onChange={(e) =>
+                setSentSort(e.target.value as "newest" | "oldest")
+              }
+            >
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+            </select>
+          </label>
+        )}
 
         <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <input
@@ -230,7 +272,7 @@ export default function ButcherBoard() {
             </h2>
 
             <div style={{ display: "grid", gap: 8 }}>
-              {byState[col.key].map((li) => {
+              {(col.key === "SENT" ? sentList : byState[col.key]).map((li) => {
                 const canSendOut =
                   li.lineState === "READY" &&
                   (orderSendable.get(li.orderId) ?? false);
@@ -281,19 +323,22 @@ export default function ButcherBoard() {
                       }}
                     >
                       {/* Back / Undo */}
-                      {li.lineState !== "PENDING" && (
-                        <button
-                          className="my_button"
-                          onClick={() =>
-                            move(
-                              li.id,
-                              li.lineState === "READY" ? "PREPARING" : "PENDING"
-                            )
-                          }
-                        >
-                          Undo
-                        </button>
-                      )}
+                      {li.lineState !== "PENDING" &&
+                        li.lineState !== "SENT" && (
+                          <button
+                            className="my_button"
+                            onClick={() =>
+                              move(
+                                li.id,
+                                li.lineState === "READY"
+                                  ? "PREPARING"
+                                  : "PENDING"
+                              )
+                            }
+                          >
+                            Undo
+                          </button>
+                        )}
 
                       {/* Forward */}
                       {li.lineState === "PENDING" && (
@@ -327,8 +372,10 @@ export default function ButcherBoard() {
                         </button>
                       )}
 
-                      {/* Minor undo from SENT */}
-                      {li.lineState === "SENT" && (
+                      {/* Undo from SENT:
+              - Allowed only when NOT in history view (showSent === false).
+              - In history view (showSent === true), this is hidden to prevent retro edits. */}
+                      {li.lineState === "SENT" && !showSent && (
                         <button
                           className="my_button"
                           onClick={() => move(li.id, "READY")}

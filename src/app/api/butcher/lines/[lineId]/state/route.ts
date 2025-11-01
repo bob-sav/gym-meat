@@ -51,6 +51,20 @@ export async function PATCH(
   });
   if (!line) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  // if trying to undo from SENT, only allow while the parent order is still IN_TRANSIT
+  if (line.lineState === "SENT" && nextState === "READY") {
+    const parent = await prisma.order.findUnique({
+      where: { id: line.orderId },
+      select: { state: true },
+    });
+    if (!parent || parent.state !== "IN_TRANSIT") {
+      return NextResponse.json(
+        { error: "Cannot undo SENT after arrival" },
+        { status: 400 }
+      );
+    }
+  }
+
   // guard transition
   const allowedNext = ALLOWED[line.lineState] ?? [];
   if (!allowedNext.includes(nextState)) {

@@ -23,6 +23,7 @@ const querySchema = z.object({
       "CANCELLED",
     ])
     .optional(),
+  sent: z.enum(["none", "in_transit", "all"]).optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -38,6 +39,7 @@ export async function GET(req: NextRequest) {
   const parsed = querySchema.safeParse({
     lineState: searchParams.get("lineState") ?? undefined,
     orderState: searchParams.get("orderState") ?? undefined,
+    sent: (searchParams.get("sent") as any) ?? undefined, // <-- IMPORTANT
   });
   if (!parsed.success) {
     return NextResponse.json(
@@ -46,18 +48,36 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const { lineState, orderState } = parsed.data;
+  const { lineState, orderState, sent = "none" } = parsed.data;
 
   const where: any = {};
-  if (lineState) where.lineState = lineState as LineState;
   if (orderState) where.order = { state: orderState as OrderState };
+
+  if (lineState) {
+    // explicit line state filter wins
+    where.lineState = lineState as LineState;
+  } else {
+    // default behavior controlled by `sent`
+    if (sent === "none") {
+      where.NOT = { lineState: "SENT" as LineState };
+    } else if (sent === "in_transit") {
+      // include SENT only while parent order is IN_TRANSIT
+      where.OR = [
+        { NOT: { lineState: "SENT" as LineState } },
+        {
+          AND: [
+            { lineState: "SENT" as LineState },
+            { order: { state: "IN_TRANSIT" as OrderState } },
+          ],
+        },
+      ];
+    }
+    // sent === "all" -> no extra filter (history)
+  }
 
   const rows = await prisma.orderLine.findMany({
     where,
-    orderBy: [
-      { order: { createdAt: "asc" } }, // FIFO by order time
-      { id: "asc" }, // stable secondary sort
-    ],
+    orderBy: [{ order: { createdAt: "asc" } }, { id: "asc" }],
     select: {
       id: true,
       orderId: true,
@@ -129,20 +149,19 @@ export async function GET(req: NextRequest) {
 
       lineState: l.lineState,
       prepLabels,
-      indexOf: { i: 1, n: 1 }, // placeholder; will be overwritten below
+      indexOf: { i: 1, n: 1 },
     };
   });
 
-  // Assign indexOf per order (1..n)
+  // per-order indexing
   const byOrder = new Map<string, number>();
   const counts = new Map<string, number>();
-  for (const it of items) {
+  for (const it of items)
     counts.set(it.orderId, (counts.get(it.orderId) ?? 0) + 1);
-  }
   for (const it of items) {
-    const nextI = (byOrder.get(it.orderId) ?? 0) + 1;
-    byOrder.set(it.orderId, nextI);
-    it.indexOf = { i: nextI, n: counts.get(it.orderId)! };
+    const i = (byOrder.get(it.orderId) ?? 0) + 1;
+    byOrder.set(it.orderId, i);
+    it.indexOf = { i, n: counts.get(it.orderId)! };
   }
 
   return NextResponse.json({ items });
