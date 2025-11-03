@@ -2,15 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient, OrderState } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/auth";
+import { sendEmail } from "@/lib/mails";
+import { readyForPickupHtml } from "@/lib/emailTemplates";
 
 const prisma = new PrismaClient();
 
-// gym-admin can only move to these states:
 const bodySchema = z.object({
   state: z.enum(["AT_GYM", "PICKED_UP", "CANCELLED"] as const),
 });
 
-// allowed transitions for gym-admin only
 const ALLOWED_NEXT: Record<OrderState, OrderState[]> = {
   PENDING: [],
   PREPARING: [],
@@ -29,11 +29,12 @@ async function getAdminGymIds(email: string) {
   return rows.map((r) => r.gymId);
 }
 
+// NOTE: Next.js validator expects `params` as a Promise in this route
 export async function PATCH(
   req: NextRequest,
-  ctx: { params: Promise<{ id: string }> } // <- params is a Promise
+  ctx: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await ctx.params; // <- await it
+  const { id } = await ctx.params;
 
   const session = await auth();
   if (!session?.user?.email) {
@@ -45,38 +46,40 @@ export async function PATCH(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const parse = bodySchema.safeParse(await req.json().catch(() => ({})));
-  if (!parse.success) {
+  const parsed = bodySchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) {
     return NextResponse.json(
-      { error: "Invalid payload", details: parse.error.flatten() },
+      { error: "Invalid payload", details: parsed.error.flatten() },
       { status: 400 }
     );
   }
-  const nextState = parse.data.state as OrderState;
+  const nextState = parsed.data.state as OrderState;
 
-  const order = await prisma.order.findUnique({
+  const existing = await prisma.order.findUnique({
     where: { id },
     select: { id: true, state: true, pickupGymId: true },
   });
-  if (!order) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  if (!order.pickupGymId || !adminGymIds.includes(order.pickupGymId)) {
+  if (!existing) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  if (!existing.pickupGymId || !adminGymIds.includes(existing.pickupGymId)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const allowed = ALLOWED_NEXT[order.state] ?? [];
+  const allowed = ALLOWED_NEXT[existing.state] ?? [];
   if (!allowed.includes(nextState)) {
     return NextResponse.json(
       {
-        error: `Invalid transition: ${order.state} -> ${nextState}`,
+        error: `Invalid transition: ${existing.state} -> ${nextState}`,
         allowedNext: allowed,
       },
       { status: 400 }
     );
   }
 
+  // Update order and include user so we can notify on AT_GYM
   const updated = await prisma.order.update({
-    where: { id: order.id },
+    where: { id: existing.id },
     data: {
       state: nextState,
       ...(nextState === "AT_GYM" && { pickupWhen: new Date() }),
@@ -89,8 +92,26 @@ export async function PATCH(
       pickupGymName: true,
       pickupWhen: true,
       createdAt: true,
+      user: { select: { email: true, name: true } },
     },
   });
+
+  // Send email on arrival after perform update and have `updated` with user + fields selected:
+  if (nextState === "AT_GYM" && updated.user?.email) {
+    try {
+      await sendEmail({
+        to: updated.user.email,
+        subject: `Order #${updated.shortCode} ready for pickup`,
+        html: readyForPickupHtml({
+          shortCode: updated.shortCode,
+          pickupGymName: updated.pickupGymName,
+          pickupWhen: updated.pickupWhen,
+        }),
+      });
+    } catch (e) {
+      console.error("Ready-for-pickup email failed:", e);
+    }
+  }
 
   return NextResponse.json({ order: updated });
 }

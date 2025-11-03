@@ -3,6 +3,8 @@ import { PrismaClient } from "@prisma/client";
 import { getCart, setCart, cartTotals } from "@/lib/cart";
 import { generateShortCode } from "@/lib/shortcode";
 import { auth } from "@/auth";
+import { sendEmail } from "@/lib/mails";
+import { orderConfirmationHtml } from "@/lib/emailTemplates";
 
 const prisma = new PrismaClient();
 
@@ -124,6 +126,33 @@ export async function POST(req: NextRequest) {
       return order;
     });
 
+    // fetch minimal lines to show in the email
+    const emailLines = await prisma.orderLine.findMany({
+      where: { orderId: created.id },
+      select: { qty: true, productName: true, unitLabel: true },
+    });
+
+    // Building the React element without JSX (so this .ts file complies)
+    try {
+      await sendEmail({
+        to: session.user.email!,
+        subject: `Order #${created.shortCode} received`,
+        html: orderConfirmationHtml({
+          shortCode: created.shortCode,
+          pickupGymName: created.pickupGymName,
+          pickupWhen: created.pickupWhen, // may be null; template handles it
+          lines: emailLines.map((l) => ({
+            qty: l.qty,
+            name: l.productName,
+            unit: l.unitLabel,
+          })),
+          totalCents: created.totalCents,
+        }),
+      });
+    } catch (e) {
+      console.error("Email(order-confirmation) failed:", e);
+    }
+
     // Clear cart & return summary
     const res = NextResponse.json({
       order: {
@@ -134,6 +163,7 @@ export async function POST(req: NextRequest) {
         pickupGymName: created.pickupGymName,
       },
     });
+
     setCart(res, { lines: [] });
     return res;
   } catch (e: any) {
