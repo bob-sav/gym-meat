@@ -22,6 +22,7 @@ export default function RootLayout({
       >
         <SiteHeader />
         <div style={{ minHeight: "calc(100dvh - 56px)" }}>{children}</div>
+        {children}
       </body>
     </html>
   );
