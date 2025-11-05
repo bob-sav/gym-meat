@@ -1,3 +1,4 @@
+import { formatHuf } from "@/lib/format";
 import { PrismaClient } from "@prisma/client";
 import Link from "next/link";
 
@@ -74,7 +75,7 @@ export default async function ProductsPage() {
 
               <div style={{ marginTop: 6 }}>
                 {minPrice !== undefined ? (
-                  <>from {(minPrice / 100).toFixed(2)} €</>
+                  <>from {formatHuf(minPrice)}</>
                 ) : (
                   <span style={{ color: "#666" }}>Pricing coming soon</span>
                 )}

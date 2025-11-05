@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDateBudapest, formatHuf } from "@/lib/format";
 import { useEffect, useState } from "react";
 
 type OrderRow = { id: string; shortCode: string; totalCents: number };
@@ -86,9 +87,9 @@ export default function ButcherSettlementsPage() {
         setNotes("");
         await load();
         alert(
-          `✅ Settled ${j?.count ?? 0} orders · ${(
+          `✅ Settled ${j?.count ?? 0} orders · ${formatHuf(
             (j?.totalCents ?? 0) / 100
-          ).toFixed(2)} €`
+          )}`
         );
       }
     } finally {
@@ -116,8 +117,7 @@ export default function ButcherSettlementsPage() {
           }}
         >
           <div>
-            <b>{eligibleCount}</b> orders ·{" "}
-            <b>{(eligibleTotal / 100).toFixed(2)} €</b>
+            <b>{eligibleCount}</b> orders · <b>{formatHuf(eligibleTotal)} </b>
           </div>
           <input
             className="border p-2 rounded"
@@ -162,11 +162,10 @@ export default function ButcherSettlementsPage() {
                 >
                   <div>
                     <div>
-                      <b>{(s.totalCents / 100).toFixed(2)} €</b> ·{" "}
-                      {s.orderCount} orders
+                      <b>{formatHuf(s.totalCents)} </b> · {s.orderCount} orders
                     </div>
                     <div style={{ color: "#666", fontSize: 12 }}>
-                      {new Date(s.createdAt).toLocaleString()}
+                      {formatDateBudapest(s.createdAt)}
                       {s.createdBy?.name || s.createdBy?.email ? (
                         <> · by {s.createdBy?.name ?? s.createdBy?.email}</>
                       ) : null}
@@ -187,7 +186,7 @@ export default function ButcherSettlementsPage() {
                     <ul style={{ marginTop: 6, paddingLeft: 18 }}>
                       {s.orders.map((o) => (
                         <li key={o.id}>
-                          #{o.shortCode} · {(o.totalCents / 100).toFixed(2)} €
+                          #{o.shortCode} · {formatHuf(o.totalCents)}
                         </li>
                       ))}
                     </ul>

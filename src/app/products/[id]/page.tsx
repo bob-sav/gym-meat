@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import ProductConfigurator from "./ui/ProductConfigurator";
 import { notFound } from "next/navigation";
+import { formatHuf } from "@/lib/format";
 
 const prisma = new PrismaClient();
 
@@ -58,7 +59,7 @@ export default async function ProductDetail({
 
           {minPrice !== undefined && (
             <div style={{ fontSize: 20, marginBottom: 4 }}>
-              from {(minPrice / 100).toFixed(2)} €
+              from {formatHuf(minPrice)}
             </div>
           )}
 

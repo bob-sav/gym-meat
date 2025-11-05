@@ -99,6 +99,11 @@ export async function PATCH(
   // Send email on arrival after perform update and have `updated` with user + fields selected:
   if (nextState === "AT_GYM" && updated.user?.email) {
     try {
+      const lines = await prisma.orderLine.findMany({
+        where: { orderId: updated.id },
+        select: { qty: true, productName: true, unitLabel: true },
+        orderBy: { id: "asc" },
+      });
       await sendEmail({
         to: updated.user.email,
         subject: `Order #${updated.shortCode} ready for pickup`,
@@ -106,6 +111,12 @@ export async function PATCH(
           shortCode: updated.shortCode,
           pickupGymName: updated.pickupGymName,
           pickupWhen: updated.pickupWhen,
+          lines: lines.map((l) => ({
+            qty: l.qty,
+            name: l.productName,
+            unit: l.unitLabel,
+          })),
+          totalCents: updated.totalCents,
         }),
       });
     } catch (e) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { formatHuf } from "@/lib/format";
 
 type Variant = {
   sizeGrams: number;
@@ -25,10 +26,6 @@ type Product = {
   variants: Variant[];
 };
 
-function centsToEUR(cents: number) {
-  return (cents / 100).toFixed(2) + " €";
-}
-
 function summarizeVariants(vs: Variant[]) {
   if (!vs?.length)
     return { sizes: "—", prices: "—", count: 0, inStockCount: 0 };
@@ -45,8 +42,8 @@ function summarizeVariants(vs: Variant[]) {
     sizes: minSize === maxSize ? `${minSize} g` : `${minSize}–${maxSize} g`,
     prices:
       minPrice === maxPrice
-        ? centsToEUR(minPrice)
-        : `${centsToEUR(minPrice)}–${centsToEUR(maxPrice)}`,
+        ? formatHuf(minPrice)
+        : `${formatHuf(minPrice)}–${formatHuf(maxPrice)}`,
     count: vs.length,
     inStockCount,
   };

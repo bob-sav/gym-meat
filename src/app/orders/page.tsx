@@ -2,13 +2,14 @@
 export const dynamic = "force-dynamic";
 
 import { auth } from "@/auth";
+import { formatHuf, formatDateBudapest } from "@/lib/format";
 import { PrismaClient } from "@prisma/client";
 import Link from "next/link";
 
 const prisma = new PrismaClient();
 
-function money(cents: number) {
-  return (cents / 100).toFixed(2) + " €";
+function money(amountHuf: number) {
+  return formatHuf(amountHuf);
 }
 
 export default async function OrdersPage() {
@@ -110,12 +111,10 @@ export default async function OrdersPage() {
               {/* Pickup + placed */}
               <div style={{ marginTop: 6 }}>
                 <b>Pickup:</b> {o.pickupGymName ?? "—"}
-                {o.pickupWhen
-                  ? `, ${new Date(o.pickupWhen).toLocaleString()}`
-                  : ""}
+                {o.pickupWhen ? `, ${formatDateBudapest(o.pickupWhen)}` : ""}
               </div>
               <div style={{ color: "#666", fontSize: 12, marginTop: 2 }}>
-                Placed: {new Date(o.createdAt).toLocaleString()}
+                Placed: {formatDateBudapest(o.createdAt)}
               </div>
 
               {/* Lines */}

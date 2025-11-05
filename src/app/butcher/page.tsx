@@ -1,5 +1,6 @@
 "use client";
 
+import { formatHuf, formatDateBudapest } from "@/lib/format";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type LineState = "PENDING" | "PREPARING" | "READY" | "SENT";
@@ -293,7 +294,7 @@ export default function ButcherBoard() {
                         </span>
                       </div>
                       <div style={{ color: "#666", fontSize: 12 }}>
-                        {new Date(li.createdAt).toLocaleString()}
+                        {formatDateBudapest(li.createdAt)}
                       </div>
                     </div>
 
@@ -310,6 +311,12 @@ export default function ButcherBoard() {
                       {!!li.prepLabels?.length && (
                         <div style={{ marginTop: 4, fontSize: 13 }}>
                           Prep: {li.prepLabels.join(", ")}
+                        </div>
+                      )}
+                      {li.lineState === "READY" && (
+                        <div className="total">
+                          {/* Replace this with your actual total calculation and display */}
+                          Total: {formatHuf(li.basePriceCents * li.qty)}
                         </div>
                       )}
                     </div>

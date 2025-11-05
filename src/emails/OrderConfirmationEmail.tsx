@@ -2,6 +2,7 @@
 import * as React from "react";
 import { Text } from "@react-email/components";
 import EmailLayout from "./EmailLayout";
+import { formatHuf } from "@/lib/format";
 
 export default function OrderConfirmationEmail(props: {
   shortCode: string;
@@ -10,7 +11,7 @@ export default function OrderConfirmationEmail(props: {
   lines: { qty: number; name: string; unit?: string | null }[];
   totalCents: number;
 }) {
-  const total = (props.totalCents / 100).toFixed(2);
+  const total = formatHuf(props.totalCents);
   return (
     <EmailLayout title="Order received">
       <Text>
@@ -35,7 +36,7 @@ export default function OrderConfirmationEmail(props: {
         ))}
       </ul>
       <Text>
-        <b>Total:</b> €{total}
+        <b>Total:</b> {total}
       </Text>
       <Text>Show your pickup code at the gym to receive your order.</Text>
     </EmailLayout>

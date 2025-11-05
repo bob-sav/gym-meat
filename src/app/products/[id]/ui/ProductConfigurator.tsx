@@ -1,5 +1,6 @@
 "use client";
 
+import { formatHuf } from "@/lib/format";
 import { useMemo, useState, useCallback } from "react";
 
 type Option = {
@@ -144,7 +145,7 @@ export default function ProductConfigurator({ product }: { product: Product }) {
                   }}
                   title={v.inStock ? "" : "Out of stock"}
                 >
-                  {formatSize(v.sizeGrams)} · {(v.priceCents / 100).toFixed(2)}€
+                  {formatSize(v.sizeGrams)} · {formatHuf(v.priceCents)}
                 </button>
               );
             })}
@@ -170,9 +171,7 @@ export default function ProductConfigurator({ product }: { product: Product }) {
                   style={{ background: active ? "#ec1818ff" : "#2306ff" }}
                 >
                   {o.label}
-                  {o.priceDeltaCents
-                    ? ` +${(o.priceDeltaCents / 100).toFixed(2)}€`
-                    : ""}
+                  {o.priceDeltaCents ? ` +${formatHuf(o.priceDeltaCents)}` : ""}
                 </button>
               );
             })}
@@ -182,7 +181,7 @@ export default function ProductConfigurator({ product }: { product: Product }) {
 
       {/* Total */}
       <div style={{ marginTop: 12, fontSize: 18 }}>
-        Total: <b>{(totalCents / 100).toFixed(2)} €</b>{" "}
+        Total: <b>{formatHuf(totalCents)}</b>{" "}
         {activeVariant && (
           <span style={{ color: "#666" }}>
             · {formatSize(activeVariant.sizeGrams)}

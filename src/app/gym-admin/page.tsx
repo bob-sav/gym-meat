@@ -1,6 +1,7 @@
 // src/app/gym-admin/page.tsx
 "use client";
 
+import { formatDateBudapest, formatHuf } from "@/lib/format";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type OrderState =
@@ -62,16 +63,16 @@ function Badge({ s }: { s: OrderState }) {
     s === "PENDING"
       ? "#aaa"
       : s === "PREPARING"
-      ? "#0ea5e9"
-      : s === "READY_FOR_DELIVERY"
-      ? "#f59e0b"
-      : s === "IN_TRANSIT"
-      ? "#8b5cf6"
-      : s === "AT_GYM"
-      ? "#22c55e"
-      : s === "PICKED_UP"
-      ? "#16a34a"
-      : "#ef4444";
+        ? "#0ea5e9"
+        : s === "READY_FOR_DELIVERY"
+          ? "#f59e0b"
+          : s === "IN_TRANSIT"
+            ? "#8b5cf6"
+            : s === "AT_GYM"
+              ? "#22c55e"
+              : s === "PICKED_UP"
+                ? "#16a34a"
+                : "#ef4444";
   return (
     <span
       style={{
@@ -282,8 +283,8 @@ export default function GymAdminPage() {
         gyms.length > 1
           ? { gymId: selectedGymId }
           : gyms[0]?.id
-          ? { gymId: gyms[0].id }
-          : {};
+            ? { gymId: gyms[0].id }
+            : {};
 
       const r = await fetch("/api/gym/settlements", {
         method: "POST",
@@ -298,9 +299,7 @@ export default function GymAdminPage() {
       await load();
       await loadHistory();
       alert(
-        `Settled ${j?.count ?? 0} orders · ${(
-          (j?.totalCents ?? 0) / 100
-        ).toFixed(2)} €`
+        `Settled ${j?.count ?? 0} orders · ${formatHuf(j?.totalCents ?? 0)}`
       );
     } catch (e: any) {
       alert(e?.message ?? String(e));
@@ -421,7 +420,7 @@ export default function GymAdminPage() {
                         <b>#{o.shortCode}</b> <Badge s={o.state} />
                       </div>
                       <div style={{ color: "#666", fontSize: 12 }}>
-                        {new Date(o.createdAt).toLocaleString()}
+                        {formatDateBudapest(o.createdAt)}
                       </div>
                     </div>
                     <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
@@ -440,7 +439,7 @@ export default function GymAdminPage() {
                       Pickup: {o.pickupGymName || "—"}
                     </div>
                     <div>
-                      <b>Total:</b> {(o.totalCents / 100).toFixed(2)} €
+                      <b>Total:</b> {formatHuf(o.totalCents)}
                     </div>
                   </article>
                 ))}
@@ -467,9 +466,12 @@ export default function GymAdminPage() {
                       </div>
                       <div style={{ color: "#666", fontSize: 12 }}>
                         {o.pickupWhen
-                          ? new Date(o.pickupWhen).toLocaleString()
-                          : new Date(o.createdAt).toLocaleString()}
+                          ? formatDateBudapest(o.pickupWhen)
+                          : formatDateBudapest(o.createdAt)}
                       </div>
+                    </div>
+                    <div>
+                      <b>Total:</b> {formatHuf(o.totalCents)}
                     </div>
                     <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
                       {o.lines.map((l) => (
@@ -521,7 +523,7 @@ export default function GymAdminPage() {
                     <b>#{o.shortCode}</b> <Badge s={o.state} />
                   </div>
                   <div style={{ color: "#666", fontSize: 12 }}>
-                    {new Date(o.createdAt).toLocaleString()}
+                    {formatDateBudapest(o.createdAt)}
                   </div>
                 </div>
                 <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
@@ -534,6 +536,9 @@ export default function GymAdminPage() {
                     </li>
                   ))}
                 </ul>
+                <div>
+                  <b>Total:</b> {formatHuf(o.totalCents)}
+                </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button
                     className="my_button"
@@ -583,7 +588,7 @@ export default function GymAdminPage() {
                         <b>#{o.shortCode}</b> <Badge s={o.state} />
                       </div>
                       <div style={{ color: "#666", fontSize: 12 }}>
-                        {new Date(o.createdAt).toLocaleString()}
+                        {formatDateBudapest(o.createdAt)}
                       </div>
                     </div>
                     <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
@@ -599,7 +604,7 @@ export default function GymAdminPage() {
                       ))}
                     </ul>
                     <div>
-                      <b>Total:</b> {(o.totalCents / 100).toFixed(2)} €
+                      <b>Total:</b> {formatHuf(o.totalCents)}
                     </div>
                   </article>
                 ))}
@@ -617,7 +622,7 @@ export default function GymAdminPage() {
                 }}
               >
                 <div style={{ fontWeight: 600 }}>
-                  Unsettled total: {(unsettledTotalCents / 100).toFixed(2)} €
+                  Unsettled total: {formatHuf(unsettledTotalCents)}
                 </div>
                 <button
                   className="my_button"
@@ -658,12 +663,12 @@ export default function GymAdminPage() {
                         <b>Settlement</b> {s.id.slice(0, 8)}…
                       </div>
                       <div style={{ color: "#666", fontSize: 12 }}>
-                        {new Date(s.createdAt).toLocaleString()}
+                        {formatDateBudapest(s.createdAt)}
                       </div>
                     </div>
                     <div style={{ marginTop: 6, color: "#444" }}>
                       Orders: <b>{s.orderCount}</b> · Total:{" "}
-                      <b>{(s.totalCents / 100).toFixed(2)} €</b>
+                      <b>{formatHuf(s.totalCents)} </b>
                       {s.createdBy?.email ? (
                         <span style={{ color: "#666" }}>
                           {" "}
@@ -675,7 +680,7 @@ export default function GymAdminPage() {
                       <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
                         {s.orders.map((o) => (
                           <li key={o.id}>
-                            #{o.shortCode} — {(o.totalCents / 100).toFixed(2)} €
+                            #{o.shortCode} — {formatHuf(o.totalCents)}
                           </li>
                         ))}
                       </ul>

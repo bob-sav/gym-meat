@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { formatHuf } from "@/lib/format";
 
 type CartOption = {
   groupId: string;
@@ -20,8 +21,8 @@ type CartLine = {
 };
 type Cart = { lines: CartLine[] };
 
-function money(cents: number) {
-  return (cents / 100).toFixed(2) + " €";
+function money(amountHuf: number) {
+  return formatHuf(amountHuf);
 }
 function lineUnitTotal(l: CartLine) {
   const add = l.options.reduce((s, o) => s + o.priceDeltaCents, 0);

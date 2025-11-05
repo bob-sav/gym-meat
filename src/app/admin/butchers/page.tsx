@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { formatDateBudapest } from "@/lib/format";
 
 type AdminRow = {
   id: string;
@@ -114,7 +115,7 @@ export default function ButchersAdminPage() {
                     <b>{r.userName || r.userEmail || r.userId}</b>
                   </div>
                   <div style={{ color: "#666", fontSize: 12 }}>
-                    Added: {new Date(r.createdAt).toLocaleString()}
+                    Added: {formatDateBudapest(r.createdAt)}
                   </div>
                 </div>
                 <div>
