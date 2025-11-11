@@ -9,6 +9,16 @@ export type UserRoles = {
   isButcherSettler: boolean;
 };
 
+// src/lib/roles.ts
+export function isSiteAdminEmail(email?: string | null): boolean {
+  if (!email) return false;
+  const allow = (process.env.ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return allow.includes(email.toLowerCase());
+}
+
 export async function getUserRoles(
   email: string | null | undefined
 ): Promise<UserRoles> {

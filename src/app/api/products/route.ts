@@ -1,6 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
+
+import { auth } from "@/auth";
+import { isSiteAdminEmail } from "@/lib/roles";
 
 const prisma = new PrismaClient();
 
@@ -90,7 +93,13 @@ export async function GET() {
  * Creates a product with variants and (optional) option groups.
  * Body must conform to createSchema above.
  */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email || !isSiteAdminEmail(email)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   try {
     const json = await req.json();
     const parsed = createSchema.safeParse(json);

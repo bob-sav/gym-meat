@@ -1,3 +1,5 @@
+// src/app/butcher/settlements/page.tsx
+
 "use client";
 
 import { formatDateBudapest, formatHuf } from "@/lib/format";
@@ -81,16 +83,21 @@ export default function ButcherSettlementsPage() {
         }),
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        setMsg(j?.error ?? r.statusText);
-      } else {
+      if (r.ok) {
         setNotes("");
         await load();
+        if (j?.settlementId) {
+          window.open(
+            `/api/butcher/settlements/${j.settlementId}/settlement.pdf?download=1`,
+            "_blank",
+            "noopener"
+          );
+        }
         alert(
-          `✅ Settled ${j?.count ?? 0} orders · ${formatHuf(
-            (j?.totalCents ?? 0) / 100
-          )}`
+          `✅ Settled ${j?.count ?? 0} orders · ${formatHuf(j?.totalCents ?? 0)}`
         );
+      } else {
+        setMsg(j?.error ?? r.statusText);
       }
     } finally {
       setLoading(false);
@@ -138,6 +145,25 @@ export default function ButcherSettlementsPage() {
           >
             Settle & Clear
           </button>
+          <button
+            className="my_button"
+            onClick={() =>
+              window.open(
+                "/api/butcher/settlements/preview.pdf?",
+                "_blank",
+                "noopener"
+              )
+            }
+            disabled={eligibleCount === 0 || loading}
+            title={
+              eligibleCount
+                ? "Preview current eligible orders"
+                : "Nothing eligible yet"
+            }
+          >
+            Preview PDF
+          </button>
+
           <button className="my_button" onClick={load} disabled={loading}>
             Refresh
           </button>

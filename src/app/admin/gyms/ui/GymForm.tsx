@@ -1,3 +1,4 @@
+// src/app/admin/gyms/ui/GymForm.tsx
 "use client";
 import { useState } from "react";
 
@@ -22,6 +23,7 @@ export default function GymForm() {
         notes: notes.trim() || undefined,
       }),
     });
+
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
       setMsg("Create failed: " + (j?.error ?? r.statusText));
@@ -32,6 +34,7 @@ export default function GymForm() {
       setNotes("");
       window.dispatchEvent(new Event("gym:refresh"));
     }
+
     setBusy(false);
   }
 
@@ -63,7 +66,7 @@ export default function GymForm() {
           onChange={(e) => setNotes(e.target.value)}
         />
       </label>
-      <button className="my_button" disabled={busy}>
+      <button className="my_button" type="submit" disabled={busy}>
         {busy ? "Creating..." : "Create Gym"}
       </button>
       {msg && <div>{msg}</div>}

@@ -1,4 +1,6 @@
+// src/app/signup/page.tsx
 "use client";
+
 import { useState } from "react";
 
 export default function SignUpPage() {
@@ -9,6 +11,7 @@ export default function SignUpPage() {
     e.preventDefault();
     setMsg(null);
     setBusy(true);
+
     const form = new FormData(e.currentTarget);
     const payload = {
       name: String(form.get("name") || "").trim() || undefined,
@@ -16,17 +19,23 @@ export default function SignUpPage() {
       password: String(form.get("password") || ""),
     };
 
-    const res = await fetch("/api/signup", {
+    // Call the verification-based register route
+    const res = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
 
-    if (res.ok) setMsg("Account created. You can log in now.");
-    else {
-      const j = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setMsg("Account created — check your email to verify your address.");
+      // Optionally clear the form
+      (e.currentTarget as HTMLFormElement).reset();
+    } else {
+      const j = await res.json().catch(() => ({}) as any);
+      // Surface a friendly error if your register route returns codes/messages
       setMsg(j?.error || "Something went wrong.");
     }
+
     setBusy(false);
   }
 
@@ -38,6 +47,7 @@ export default function SignUpPage() {
           name="name"
           placeholder="Name (optional)"
           className="border p-2 rounded"
+          autoComplete="name"
         />
         <input
           name="email"
@@ -45,6 +55,7 @@ export default function SignUpPage() {
           placeholder="Email"
           required
           className="border p-2 rounded"
+          autoComplete="email"
         />
         <input
           name="password"
@@ -52,12 +63,20 @@ export default function SignUpPage() {
           placeholder="Password (min 8)"
           required
           className="border p-2 rounded"
+          autoComplete="new-password"
+          minLength={8}
         />
         <button disabled={busy} className="my_button">
           {busy ? "Creating…" : "Sign up"}
         </button>
       </form>
+
+      <p style={{ marginTop: 8, fontSize: 12, color: "#666" }}>
+        Use at least 8 characters. We’ll email you a verification link.
+      </p>
+
       {msg && <p style={{ marginTop: 12 }}>{msg}</p>}
+
       <p style={{ marginTop: 16, opacity: 0.7 }}>
         Already have an account? <a href="/login">Log in</a>
       </p>

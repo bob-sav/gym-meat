@@ -298,12 +298,36 @@ export default function GymAdminPage() {
       }
       await load();
       await loadHistory();
+
+      // open the bulk PDF for this settlement
+      if (j?.settlementId) {
+        window.open(
+          `/api/gym/settlements/${j.settlementId}/settlement.pdf?download=1`,
+          "_blank",
+          "noopener"
+        );
+      }
+
       alert(
         `Settled ${j?.count ?? 0} orders · ${formatHuf(j?.totalCents ?? 0)}`
       );
     } catch (e: any) {
       alert(e?.message ?? String(e));
     }
+  }
+
+  async function previewPdf() {
+    const gymId = gyms.length > 1 ? selectedGymId : (gyms[0]?.id ?? "");
+    if (!gymId) {
+      alert("Please select a gym first.");
+      return;
+    }
+    // open a non-persistent preview (download=1 optional)
+    window.open(
+      `/api/gym/settlements/preview.pdf?gymId=${encodeURIComponent(gymId)}`,
+      "_blank",
+      "noopener"
+    );
   }
 
   return (
@@ -556,6 +580,20 @@ export default function GymAdminPage() {
                   >
                     Cancel
                   </button>
+                  <a
+                    href={`/api/orders/${o.id}/settlement.pdf`}
+                    target="_blank"
+                    rel="noopener"
+                    className="my_button"
+                  >
+                    View settlement (PDF)
+                  </a>
+                  <a
+                    href={`/api/orders/${o.id}/settlement.pdf?download=1`}
+                    className="my_button"
+                  >
+                    Download settlement (PDF)
+                  </a>
                 </div>
               </article>
             ))}
@@ -640,6 +678,23 @@ export default function GymAdminPage() {
                   }
                 >
                   Settle & Clear
+                </button>
+                <button
+                  className="my_button"
+                  onClick={previewPdf}
+                  disabled={
+                    (gyms.length > 1 && !selectedGymId) ||
+                    completedUnsettled.length === 0
+                  }
+                  title={
+                    gyms.length > 1
+                      ? selectedGymId
+                        ? "Preview for selected gym"
+                        : "Select a gym"
+                      : "Preview"
+                  }
+                >
+                  Preview PDF
                 </button>
               </div>
             </>

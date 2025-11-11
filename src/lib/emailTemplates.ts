@@ -100,6 +100,23 @@ export function readyForPickupHtml(args: {
   </div>`;
 }
 
+// --- Email verification On sign up
+export function verifyEmailHtml(args: { link: string }) {
+  return `
+    <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.4">
+      <h2>Verify your email</h2>
+      <p>Click the button below to verify your email address.</p>
+      <p>
+        <a href="${args.link}"
+           style="display:inline-block;background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">
+          Verify Email
+        </a>
+      </p>
+      <p style="font-size:12px;color:#666">If the button doesn't work, copy & paste this link:<br/>${args.link}</p>
+    </div>
+  `;
+}
+
 function escapeHtml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

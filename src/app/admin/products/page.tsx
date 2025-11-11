@@ -1,13 +1,11 @@
-import { auth } from "@/auth";
-import { redirect } from "next/navigation";
+import { requireSiteAdmin } from "@/lib/guards";
 import ProductForm from "./ProductForm";
 import ProductsTable from "./ProductsTable";
 
 export const dynamic = "force-dynamic"; // ensure fresh render in admin
 
 export default async function AdminProductsPage() {
-  const session = await auth();
-  if (!session?.user) redirect("/login?from=/admin/products");
+  await requireSiteAdmin(); // ⬅️ one-liner gate
 
   return (
     <main style={{ maxWidth: 960, margin: "2rem auto", padding: 16 }}>

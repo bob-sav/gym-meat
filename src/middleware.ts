@@ -1,16 +1,24 @@
+// src/middleware.ts
 import { auth } from "@/auth";
 
-// Require sign-in for protected pages. Role checks stay in routes/pages.
 export default auth((req) => {
+  if (req.nextUrl.pathname.startsWith("/login")) return;
+
   if (!req.auth) {
-    const url = new URL("/login", req.nextUrl);
-    url.searchParams.set("from", req.nextUrl.pathname);
-    return Response.redirect(url);
+    const from = req.nextUrl.pathname + req.nextUrl.search;
+    const base =
+      process.env.NEXT_PUBLIC_APP_URL ??
+      process.env.NEXTAUTH_URL ??
+      process.env.AUTH_URL ??
+      req.nextUrl.origin;
+
+    const loginUrl = new URL("/login", base);
+    loginUrl.searchParams.set("from", from);
+    return Response.redirect(loginUrl);
   }
 });
 
-// Only match the *pages* that should require login.
-// (Don’t include /api/*; those already do their own auth/role checks.)
+// Only protect the pages you listed (no /api/*).
 export const config = {
   matcher: [
     "/orders",
@@ -19,5 +27,6 @@ export const config = {
     "/butcher",
     "/butcher/:path*",
     "/admin/:path*",
+    "/account", // if the settings page gated
   ],
 };

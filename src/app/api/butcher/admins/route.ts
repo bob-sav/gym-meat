@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/auth";
+import { isSiteAdminEmail } from "@/lib/roles";
 
 const prisma = new PrismaClient();
 
@@ -12,8 +13,10 @@ const createSchema = z.object({
 
 export async function GET() {
   const session = await auth();
-  if (!session?.user?.email)
-    return NextResponse.json({ items: [] }, { status: 401 });
+  const email = session?.user?.email;
+  if (!email || !isSiteAdminEmail(email)) {
+    return NextResponse.json({ items: [] }, { status: 403 });
+  }
 
   const rows = await prisma.butcherAdmin.findMany({
     orderBy: { createdAt: "desc" },
@@ -34,8 +37,10 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user?.email)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const actingEmail = session?.user?.email;
+  if (!actingEmail || !isSiteAdminEmail(actingEmail)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const parse = createSchema.safeParse(await req.json().catch(() => ({})));
   if (!parse.success) {
@@ -50,13 +55,14 @@ export async function POST(req: NextRequest) {
     where: { email },
     select: { id: true },
   });
-  if (!user)
+  if (!user) {
     return NextResponse.json(
       { error: "User not found for that email" },
       { status: 404 }
     );
+  }
 
-  // upsert by userId unique constraint
+  // Upsert by userId unique constraint
   const admin = await prisma.butcherAdmin.upsert({
     where: { userId: user.id },
     create: { userId: user.id, role: (role as any) ?? "PREP_ONLY" },

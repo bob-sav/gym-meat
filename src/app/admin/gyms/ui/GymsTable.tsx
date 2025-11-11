@@ -1,3 +1,4 @@
+// src/app/admin/gyms/ui/GymsTable.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -28,7 +29,6 @@ export default function GymsTable() {
     setErr(null);
     try {
       const r = await fetch("/api/gym", { cache: "no-store" });
-      // If server ever returns non-200, still try to parse safely
       const j = await r.json();
       setItems(j.items || []);
     } catch (e: any) {
@@ -91,7 +91,7 @@ export default function GymsTable() {
             <th style={{ padding: 8 }}>Name</th>
             <th style={{ padding: 8 }}>Address</th>
             <th style={{ padding: 8 }}>Active</th>
-            <th style={{ padding: 8 }}>Admins</th>
+            <th style={{ padding: 8, minWidth: 260 }}>Admins</th>
             <th style={{ padding: 8, width: 220 }}>Actions</th>
           </tr>
         </thead>
@@ -101,19 +101,8 @@ export default function GymsTable() {
               <td style={{ padding: 8 }}>{g.name}</td>
               <td style={{ padding: 8 }}>{g.address ?? "—"}</td>
               <td style={{ padding: 8 }}>{g.active ? "✅" : "❌"}</td>
-              <td style={{ padding: 8 }}>
-                {g.admins.length
-                  ? g.admins.map((a) => a.userEmail ?? a.userId).join(", ")
-                  : "—"}
-              </td>
-              <td style={{ padding: 8, display: "flex", gap: 8 }}>
-                <button className="my_button" onClick={() => toggleActive(g)}>
-                  {g.active ? "Deactivate" : "Activate"}
-                </button>
-                <button className="my_button" onClick={() => addAdmin(g.id)}>
-                  Add admin
-                </button>
-              </td>
+
+              {/* Admins column: show list + per-admin remove button */}
               <td style={{ padding: 8 }}>
                 {g.admins.length === 0 ? (
                   <span style={{ color: "#666" }}>No admins</span>
@@ -134,13 +123,15 @@ export default function GymsTable() {
                           gap: 8,
                           alignItems: "center",
                         }}
+                        title={`GymAdmin ID: ${a.id}`}
                       >
-                        <span title={`GymAdmin ID: ${a.id}`}>
+                        <span>
                           {a.userEmail ?? a.userId}
+                          {a.userName ? ` (${a.userName})` : ""}
                         </span>
                         <button
                           className="my_button"
-                          onClick={() => removeAdmin(g.id, a.id)} // 👈 pass GymAdmin.id
+                          onClick={() => removeAdmin(g.id, a.id)}
                           style={{ background: "#ec1818ff" }}
                         >
                           Remove
@@ -149,6 +140,16 @@ export default function GymsTable() {
                     ))}
                   </ul>
                 )}
+              </td>
+
+              {/* Actions column */}
+              <td style={{ padding: 8, display: "flex", gap: 8 }}>
+                <button className="my_button" onClick={() => toggleActive(g)}>
+                  {g.active ? "Deactivate" : "Activate"}
+                </button>
+                <button className="my_button" onClick={() => addAdmin(g.id)}>
+                  Add admin
+                </button>
               </td>
             </tr>
           ))}

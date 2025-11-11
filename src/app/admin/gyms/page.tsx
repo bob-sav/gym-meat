@@ -1,9 +1,12 @@
+// src/app/admin/gyms/page.tsx
+import { requireSiteAdmin } from "@/lib/guards";
 import GymsTable from "./ui/GymsTable";
 import GymForm from "./ui/GymForm";
 
 export const dynamic = "force-dynamic";
 
-export default function GymsAdminPage() {
+export default async function GymsAdminPage() {
+  await requireSiteAdmin(); // ⬅️ gate
   return (
     <main style={{ maxWidth: 1000, margin: "2rem auto", padding: 16 }}>
       <h1 style={{ fontSize: 24, marginBottom: 16 }}>Gyms</h1>

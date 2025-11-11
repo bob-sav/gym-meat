@@ -2,6 +2,9 @@ import { NextResponse, NextRequest } from "next/server";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 
+import { auth } from "@/auth";
+import { isSiteAdminEmail } from "@/lib/roles";
+
 const prisma = new PrismaClient();
 
 // Runtime enums for Zod
@@ -88,6 +91,12 @@ export async function PUT(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email || !isSiteAdminEmail(email)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const { id } = await ctx.params;
   try {
     const body = await req.json();
@@ -173,6 +182,12 @@ export async function DELETE(
   _req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email || !isSiteAdminEmail(email)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const { id } = await ctx.params;
   try {
     await prisma.product.delete({ where: { id } });
