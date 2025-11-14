@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { formatHuf } from "@/lib/format";
+import s from "./cart.module.css";
 
 type CartOption = {
   groupId: string;
@@ -33,7 +34,14 @@ export default function CartPage() {
   const [cart, setCart] = useState<Cart>({ lines: [] });
   const [loading, setLoading] = useState(true);
 
-  async function load() {
+  // per-line "in-flight" state (adds gentle fade/scale)
+  const [pending, setPending] = useState<Record<string, boolean>>({});
+
+  // debounce timers per line id
+  const timers = useRef<Record<string, number>>({});
+
+  // ---- Loaders ----
+  async function loadInitial() {
     setLoading(true);
     try {
       const r = await fetch("/api/cart", {
@@ -47,142 +55,288 @@ export default function CartPage() {
     }
   }
 
+  // Soft refresh (no global loading flag)
+  async function refreshCartSilently() {
+    const r = await fetch("/api/cart", {
+      credentials: "include",
+      cache: "no-store",
+    });
+    const j = await r.json().catch(() => ({}));
+    if (j?.cart) setCart(j.cart);
+  }
+
   useEffect(() => {
-    load();
+    loadInitial();
+    return () => {
+      // cleanup any active debounce timers
+      Object.values(timers.current).forEach((t) => clearTimeout(t));
+    };
   }, []);
 
-  async function updateQty(lineId: string, qty: number) {
-    await fetch(`/api/cart/${lineId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ qty }),
-    });
-    await load();
+  // keep header badge in sync
+  useEffect(() => {
+    if (!loading) window.dispatchEvent(new Event("cart:bump"));
+  }, [loading, cart?.lines?.length]);
+
+  // ---- Optimistic Qty Update (debounced) ----
+  function updateQtyDebounced(lineId: string, nextQty: number) {
+    // Boundaries
+    nextQty = Math.max(1, Number(nextQty) || 1);
+
+    // optimistic: update local state immediately
+    setPending((p) => ({ ...p, [lineId]: true }));
+    setCart((prev) => ({
+      ...prev,
+      lines: prev.lines.map((l) =>
+        l.id === lineId ? { ...l, qty: nextQty } : l
+      ),
+    }));
     window.dispatchEvent(new Event("cart:bump"));
+
+    // debounce the network call
+    clearTimeout(timers.current[lineId]);
+    timers.current[lineId] = window.setTimeout(async () => {
+      const old = cart.lines.find((l) => l.id === lineId)?.qty ?? 1;
+      try {
+        const r = await fetch(`/api/cart/${lineId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ qty: nextQty }),
+          credentials: "include",
+        });
+        if (!r.ok) {
+          // revert
+          setCart((prev) => ({
+            ...prev,
+            lines: prev.lines.map((l) =>
+              l.id === lineId ? { ...l, qty: old } : l
+            ),
+          }));
+          const j = await r.json().catch(() => ({}));
+          alert(j?.error ?? r.statusText);
+        } else {
+          // optional re-sync
+          refreshCartSilently();
+        }
+      } catch (e: any) {
+        // revert on error
+        setCart((prev) => ({
+          ...prev,
+          lines: prev.lines.map((l) =>
+            l.id === lineId ? { ...l, qty: old } : l
+          ),
+        }));
+        alert(e?.message ?? "Update failed");
+      } finally {
+        setPending((p) => ({ ...p, [lineId]: false }));
+        window.dispatchEvent(new Event("cart:bump"));
+      }
+    }, 180);
   }
 
+  // ---- Optimistic Remove ----
+  // replace your removeLine with this
   async function removeLine(lineId: string) {
-    await fetch(`/api/cart/${lineId}`, { method: "DELETE" });
-    await load();
+    const old = cart;
+    // optimistic remove
+    setCart((prev) => ({
+      ...prev,
+      lines: prev.lines.filter((l) => l.id !== lineId),
+    }));
     window.dispatchEvent(new Event("cart:bump"));
+
+    try {
+      const r = await fetch(`/api/cart/${lineId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!r.ok) {
+        setCart(old); // revert
+        const j = await r.json().catch(() => ({}));
+        alert(j?.error ?? r.statusText);
+      } else {
+        await refreshCartSilently();
+      }
+    } catch (e: any) {
+      setCart(old); // revert
+      alert(e?.message ?? "Remove failed");
+    } finally {
+      // ensure header badge sync after final state
+      window.dispatchEvent(new Event("cart:bump"));
+    }
   }
 
-  const subtotal = cart.lines.reduce((s, l) => s + lineUnitTotal(l) * l.qty, 0);
+  // ---- Optimistic Clear ----
+  // replace your clearCart with this
+  async function clearCart() {
+    const old = cart;
+    // optimistic clear
+    setCart({ lines: [] });
+    window.dispatchEvent(new Event("cart:bump"));
+
+    try {
+      const r = await fetch("/api/cart", {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!r.ok) {
+        setCart(old); // revert
+        const j = await r.json().catch(() => ({}));
+        alert(j?.error ?? r.statusText);
+      }
+    } catch (e: any) {
+      setCart(old); // revert
+      alert(e?.message ?? "Clear failed");
+    } finally {
+      // ensure header badge sync after final state
+      window.dispatchEvent(new Event("cart:bump"));
+    }
+  }
+
+  const subtotal = useMemo(
+    () => cart.lines.reduce((s, l) => s + lineUnitTotal(l) * l.qty, 0),
+    [cart.lines]
+  );
+  const totalQty = useMemo(
+    () => cart.lines.reduce((s, l) => s + (Number(l.qty ?? 1) || 0), 0),
+    [cart.lines]
+  );
+
+  const hasItems = cart.lines.length > 0;
+  const wrapperClass = `${s.wrapper} ${hasItems ? s.stickyPad : ""}`;
 
   return (
-    <main style={{ maxWidth: 900, margin: "2rem auto", padding: 16 }}>
-      <h1 style={{ fontSize: 24, marginBottom: 16 }}>Your Cart</h1>
+    <main className={wrapperClass}>
+      <h1 className={s.title}>
+        Your Cart{" "}
+        {totalQty ? (
+          <span className={s.titleSmall}>({totalQty} items)</span>
+        ) : null}
+      </h1>
 
-      {loading && <p>Loading…</p>}
+      {loading && <p className={s.loading}>Loading…</p>}
 
-      {!loading && !cart.lines.length && (
-        <p>
+      {!loading && !hasItems && (
+        <p className={s.empty}>
           Cart is empty.{" "}
-          <Link href="/products" style={{ textDecoration: "underline" }}>
+          <Link href="/storefront" style={{ textDecoration: "underline" }}>
             Browse products
           </Link>
           .
         </p>
       )}
 
-      {!loading &&
-        cart.lines.map((l) => (
-          <div
-            key={l.id}
-            style={{
-              border: "1px solid #eee",
-              borderRadius: 8,
-              padding: 12,
-              marginBottom: 12,
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <div>
-                <div style={{ fontWeight: 600 }}>{l.name}</div>
-                <div style={{ fontSize: 12, color: "#666" }}>{l.unitLabel}</div>
-              </div>
-              <div>
-                {money(lineUnitTotal(l))} × {l.qty}
-              </div>
-            </div>
+      {hasItems && (
+        <div className={s.list}>
+          {cart.lines.map((l) => {
+            const unit = lineUnitTotal(l);
+            const lineTotal = unit * l.qty;
+            const isUpdating = !!pending[l.id];
 
-            {!!l.options.length && (
-              <ul style={{ marginTop: 8, color: "#444", fontSize: 14 }}>
-                {l.options.map((o) => (
-                  <li key={o.optionId}>
-                    {o.label}{" "}
-                    {o.priceDeltaCents ? `(+${money(o.priceDeltaCents)})` : ""}
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            <div
-              style={{
-                marginTop: 8,
-                display: "flex",
-                gap: 8,
-                alignItems: "center",
-              }}
-            >
-              <label>
-                Qty:{" "}
-                <input
-                  type="number"
-                  min={1}
-                  defaultValue={l.qty}
-                  onChange={(e) =>
-                    updateQty(l.id, Math.max(1, Number(e.target.value || 1)))
-                  }
-                  className="border p-1 rounded"
-                  style={{ width: 64 }}
-                />
-              </label>
-              <button
-                onClick={() => removeLine(l.id)}
-                className="my_button"
-                //style={{ color: "crimson" }}
+            return (
+              <article
+                key={l.id}
+                className={`${s.card} ${isUpdating ? s.updating : ""}`}
               >
-                Remove
-              </button>
-            </div>
-          </div>
-        ))}
+                <div className={s.row}>
+                  <div>
+                    <div className={s.name}>{l.name}</div>
+                    <div className={s.unitLabel}>{l.unitLabel}</div>
+                  </div>
+                  <div
+                    className={`${s.priceBlock} ${isUpdating ? s.bump : ""}`}
+                  >
+                    <div className={s.unitLine}>
+                      {money(unit)} × {l.qty}
+                    </div>
+                    <div className={s.totalLine} aria-label="Line total">
+                      = {money(lineTotal)}
+                    </div>
+                  </div>
+                </div>
 
-      {!!cart.lines.length && (
-        <div style={{ marginTop: 16, textAlign: "right", fontSize: 18 }}>
-          Subtotal: <b>{money(subtotal)}</b>
+                {!!l.options.length && (
+                  <ul className={s.options}>
+                    {l.options.map((o) => (
+                      <li key={o.optionId}>
+                        {o.label}
+                        {o.priceDeltaCents
+                          ? ` (+${money(o.priceDeltaCents)})`
+                          : ""}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <div className={s.controls}>
+                  <div className={s.qty}>
+                    <button
+                      className={s.chip}
+                      onClick={() =>
+                        updateQtyDebounced(
+                          l.id,
+                          Math.max(1, (Number(l.qty) || 1) - 1)
+                        )
+                      }
+                      aria-label="Decrease quantity"
+                    >
+                      −
+                    </button>
+                    <div className={s.qtyNum} aria-live="polite">
+                      {l.qty}
+                    </div>
+                    <button
+                      className={s.chip}
+                      onClick={() =>
+                        updateQtyDebounced(l.id, (Number(l.qty) || 1) + 1)
+                      }
+                      aria-label="Increase quantity"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={() => removeLine(l.id)}
+                    className="my_button"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
 
-      {!!cart.lines.length && (
-        <div
-          style={{
-            marginTop: 16,
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <button
-            onClick={async () => {
-              await fetch("/api/cart", { method: "DELETE" });
-              await load();
-              window.dispatchEvent(new Event("cart:bump"));
-            }}
-            className="my_button"
-            //style={{ color: "crimson" }}
-          >
+      {hasItems && (
+        <section className={s.actions} aria-label="Cart actions">
+          <button onClick={clearCart} className="my_button">
             Clear cart
           </button>
-          <div style={{ marginTop: 16 }}>
-            <Link className="my_button" href="/checkout">
-              Proceed to checkout
-            </Link>
-          </div>
-          <div style={{ fontSize: 18 }}>
+
+          <Link className={` my_button ${s.desktopOnly}`} href="/checkout">
+            Proceed to checkout
+          </Link>
+
+          <div className={s.subtotal}>
             Subtotal: <b>{money(subtotal)}</b>
           </div>
+        </section>
+      )}
+
+      {/* Mobile sticky summary bar */}
+      {hasItems && (
+        <div className={s.stickyBar} role="region" aria-label="Cart summary">
+          <div className={s.stickySubtotal} aria-live="polite">
+            <div>
+              <b>{money(subtotal)}</b> total
+            </div>
+            <span className={s.stickyQty}>{totalQty} items</span>
+          </div>
+          <Link className={`my_button ${s.stickyCheckout}`} href="/checkout">
+            Checkout
+          </Link>
         </div>
       )}
     </main>

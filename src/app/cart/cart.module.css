@@ -1,0 +1,247 @@
+.wrapper {
+  max-width: 900px;
+  margin: 2rem auto;
+  padding: 16px;
+}
+
+.title {
+  font-size: 24px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.titleSmall {
+  opacity: 0.75;
+  font-size: 16px;
+}
+
+.loading,
+.empty {
+  opacity: 0.85;
+}
+
+.list {
+  display: grid;
+  gap: 12px;
+}
+
+/* Card / line */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.name {
+  font-weight: 700;
+}
+
+.unitLabel {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.priceBlock {
+  text-align: right;
+}
+
+.unitLine {
+  font-size: 14px;
+  opacity: 0.85;
+}
+
+.totalLine {
+  font-size: 16px;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.price {
+  white-space: nowrap;
+}
+
+.options {
+  margin-top: 8px;
+  color: #fff;
+  font-size: 14px;
+  opacity: 0.95;
+  padding-left: 18px;
+}
+
+.controls {
+  margin-top: 10px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.qty {
+  display: grid;
+  grid-auto-flow: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.chip {
+  border: 1px solid #fff;
+  background: transparent;
+  color: #fff;
+  border-radius: 999px;
+  padding: 8px 12px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.qtyNum {
+  min-width: 36px;
+  text-align: center;
+}
+
+.actions {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 12px;
+  align-items: center;
+}
+
+@media (max-width: 700px) {
+  .actions {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+}
+
+.subtotal {
+  font-size: 18px;
+  text-align: right;
+}
+
+/* Optional alt buttons if you want visual variety */
+.btnDanger {
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.btnDanger:hover {
+  background: var(--ink);
+  color: #fff;
+}
+
+.center {
+  display: grid;
+  place-items: center;
+  min-height: 60px;
+}
+
+/* === Mobile sticky summary bar === */
+.stickyBar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  z-index: 50;
+  display: none; /* hidden on desktop */
+  box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.35);
+}
+
+@media (max-width: 900px) {
+  .stickyBar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    align-items: center;
+    backdrop-filter: blur(5px);
+  }
+  /* Add bottom padding to page content while sticky bar is visible */
+  .stickyPad {
+    padding-bottom: calc(72px + env(safe-area-inset-bottom));
+  }
+}
+
+.stickySubtotal {
+  line-height: 1.2;
+  border-right: 1px solid var(--border);
+  padding-right: 12px;
+  margin-right: 12px;
+}
+
+.stickySubtotal b {
+  font-size: 18px;
+}
+
+.stickyQty {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.stickyCheckout {
+  align-self: center;
+  height: 44px;
+  display: inline-grid;
+  place-items: center;
+  white-space: nowrap;
+  padding: 0 16px;
+}
+
+/* Invisiblity hope it works */
+.desktopOnly {
+  display: inline-grid;
+}
+@media (max-width: 900px) {
+  .desktopOnly {
+    display: none;
+  }
+}
+
+/* gentle "in-flight" feedback per line */
+.updating {
+  opacity: 0.65;
+  transform: scale(0.998);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.priceBlock {
+  transition:
+    transform 160ms ease,
+    color 160ms ease;
+}
+
+.bump {
+  animation: cart-bump 260ms ease;
+}
+
+@keyframes cart-bump {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+  }
+}

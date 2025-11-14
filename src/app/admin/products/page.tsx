@@ -1,3 +1,4 @@
+// src/app/admin/products/page.tsx
 import { requireSiteAdmin } from "@/lib/guards";
 import ProductForm from "./ProductForm";
 import ProductsTable from "./ProductsTable";

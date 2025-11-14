@@ -77,7 +77,14 @@ export default async function OrdersPage() {
       ) : (
         <div style={{ display: "grid", gap: 12 }}>
           {orders.map((o) => (
-            <div key={o.id} className="border p-3 rounded">
+            <div
+              style={{
+                padding: "8px 10px",
+                border: "2px solid #fff",
+                borderRadius: "var(--radius)",
+              }}
+              key={o.id}
+            >
               {/* Top row: code, status, total */}
               <div
                 style={{
@@ -98,6 +105,7 @@ export default async function OrdersPage() {
                       borderRadius: 999,
                       fontSize: 12,
                       background: "#f3f4f6",
+                      color: "var(--red-700)",
                     }}
                   >
                     {o.state}

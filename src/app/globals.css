@@ -1,49 +1,77 @@
-/* Minimal reset */
-* {
-  box-sizing: border-box;
-}
-html,
-body {
-  margin: 0;
-  padding: 0;
-}
-a {
-  color: inherit;
-}
-button {
-  cursor: pointer;
-}
-
+/* ===========================
+   0) THEME TOKENS
+   =========================== */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Reds */
+  --red-600: #dc2626;
+  --red-700: #b91c1c;
+  --red-800: #7a1010;
+
+  /* Core */
+  --bg: var(--red-700);
+  --text: #ffffff;
+  --ink: #0b0b0b;
+
+  /* Surfaces & borders (work on red) */
+  --surface: rgba(0, 0, 0, 0.16);
+  --surface-strong: rgba(0, 0, 0, 0.28);
+  --border: rgba(255, 255, 255, 0.65);
+  --border-ink: rgba(0, 0, 0, 0.85);
+
+  /* UI */
+  --radius: 12px;
+  --shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  --ring: #fde68a; /* warm focus ring */
+
+  /* Fonts provided via next/font variables */
+  --font-ui:
+    system-ui, -apple-system, Segoe UI, Roboto, Inter, Helvetica, Arial,
+    "Apple Color Emoji", "Segoe UI Emoji";
+  --font-display: var(--font-ui);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --bg: var(--red-800);
+    --surface: rgba(255, 255, 255, 0.08);
+    --surface-strong: rgba(255, 255, 255, 0.14);
+    --border: rgba(255, 255, 255, 0.55);
   }
+}
+
+/* ===========================
+   1) RESET / BASE
+   =========================== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 html,
 body {
-  max-width: 100vw;
-  overflow-x: hidden;
+  height: 100%;
+}
+
+html {
+  color-scheme: light dark;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
+img,
+svg,
+video,
+canvas {
+  display: block;
+  max-width: 100%;
 }
 
 a {
@@ -51,16 +79,178 @@ a {
   text-decoration: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+button {
+  cursor: pointer;
 }
 
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* ===========================
+   2) TYPOGRAPHY HELPERS
+   =========================== */
+.display {
+  font-family: var(--font-display);
+  letter-spacing: 0.2px;
+}
+
+.num {
+  /* Nice consistent numbers anywhere (prices, weights) */
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===========================
+   3) SURFACES / CARDS
+   =========================== */
+.surface {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.card {
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+/* ===========================
+   4) BUTTONS (invert on hover)
+   =========================== */
+/* Share styles with existing .my_button for backwards-compat */
+.btn,
 .my_button {
-  background: #2306ff;
-  color: white;
-  padding: 0.6rem;
-  border: none;
-  border-radius: 0.25rem;
+  --btn-bg: var(--red-600);
+  --btn-fg: #fff;
+  --btn-bd: #fff;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  border: 1px solid var(--btn-bd);
+  border-radius: 10px;
+  padding: 10px 12px;
+  gap: 0.5rem;
+  text-align: center;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.06s ease;
+}
+
+.btn:hover,
+.my_button:hover {
+  /* invert: bg->white, fg->red, border -> black for contrast */
+  background: #fff;
+  color: var(--red-600);
+  border-color: var(--border-ink);
+}
+
+.btn:active,
+.my_button:active {
+  transform: translateY(1px);
+}
+
+.btn:disabled,
+.my_button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Secondary (outline-first) */
+.btn--outline {
+  --btn-bg: transparent;
+  --btn-fg: #fff;
+  --btn-bd: #fff;
+}
+.btn--outline:hover {
+  /* invert on hover */
+  background: #fff;
+  color: var(--red-600);
+  border-color: var(--border-ink);
+}
+
+/* Ghost (texty) */
+.btn--ghost {
+  --btn-bg: transparent;
+  --btn-fg: #fff;
+  --btn-bd: transparent;
+}
+.btn--ghost:hover {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+/* Pills / chips (used in storefront) */
+.chip {
+  background: transparent;
+  color: #fff;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 10px;
+}
+.chip:hover {
+  background: var(--surface);
+}
+
+/* ===========================
+   5) FORMS
+   =========================== */
+.input,
+select,
+textarea {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.input::placeholder,
+textarea::placeholder {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* ===========================
+   6) UTILITIES
+   =========================== */
+.container {
+  width: min(1200px, 100%);
+  margin: 0 auto;
+  padding: 16px;
+}
+.center {
+  display: grid;
+  place-items: center;
+}
+.mono {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* Scrollbar (WebKit) – optional but nice on red */
+*::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
 }

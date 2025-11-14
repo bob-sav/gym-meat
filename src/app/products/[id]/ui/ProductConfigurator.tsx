@@ -1,3 +1,4 @@
+// src/app/products/[id]/ui/ProductConfigurator.tsx
 "use client";
 
 import { formatHuf } from "@/lib/format";

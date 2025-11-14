@@ -1,3 +1,4 @@
+// src/app/admin/products/Productstable.tsx
 "use client";
 
 import { useEffect, useState } from "react";

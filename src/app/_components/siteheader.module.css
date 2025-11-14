@@ -1,0 +1,157 @@
+:root {
+  --header-h: 61px;
+} /* match your real header height */
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  backdrop-filter: saturate(1.1) blur(6px);
+  background: color-mix(in lab, var(--surface) 88%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+.nav {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 10px 16px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+}
+
+/* Brand */
+.brand {
+  display: inline-grid;
+  grid-auto-flow: column;
+  gap: 8px;
+  align-items: center;
+  color: #fff;
+  -webkit-tap-highlight-color: transparent;
+}
+.brandText {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+/* Burger (mobile) */
+.burger {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: #fff;
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.burger:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Primary links */
+.primary {
+  display: grid;
+  grid-auto-flow: column;
+  gap: 12px;
+  align-items: center;
+}
+.link {
+  color: #fff;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 6px 10px;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+.link:hover {
+  background: #fff;
+  color: var(--red-600);
+  border-color: var(--border-ink);
+}
+
+/* Right actions */
+.actions {
+  display: grid;
+  grid-auto-flow: column;
+  gap: 10px;
+  align-items: center;
+  justify-content: end;
+}
+.iconBtn {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  color: #fff;
+  background: transparent;
+  -webkit-tap-highlight-color: transparent;
+}
+.iconBtn:hover {
+  background: #fff;
+  color: var(--red-600);
+  border-color: var(--border-ink);
+}
+.iconBtn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--red-600);
+  border: 1px solid var(--border-ink);
+  font-size: 11px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+}
+
+.user {
+  display: none; /* show on desktop only */
+  color: #e2e8f0;
+  font-size: 13px;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .nav {
+    grid-template-columns: auto auto 1fr auto;
+  }
+  .burger {
+    display: inline-grid;
+  }
+  .primary {
+    display: none;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 56px;
+    background: var(--border-ink);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    grid-auto-flow: row;
+  }
+  .primary.open {
+    display: grid;
+  }
+}
+@media (min-width: 901px) {
+  .user {
+    display: inline;
+  }
+}

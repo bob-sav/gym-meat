@@ -1,3 +1,4 @@
+// src/app/admin/products/ProductForm.tsx
 "use client";
 
 import { useState } from "react";
@@ -36,14 +37,14 @@ const DEFAULT_GROUPS: GroupInput[] = [
     required: true,
     options: [
       { label: "Whole", isDefault: true, priceDeltaCents: 0, sortOrder: 0 },
-      { label: "Diced", priceDeltaCents: 30, sortOrder: 1 },
-      { label: "Strips", priceDeltaCents: 30, sortOrder: 2 },
+      { label: "Diced", priceDeltaCents: 0, sortOrder: 1 },
+      { label: "Ground", priceDeltaCents: 0, sortOrder: 2 },
     ],
   },
   {
     name: "Prep Extras",
     type: "MULTIPLE",
-    options: [{ label: "Remove membrane", priceDeltaCents: 20, sortOrder: 0 }],
+    options: [{ label: "de-boned, trimmed", priceDeltaCents: 0, sortOrder: 0 }],
   },
 ];
 

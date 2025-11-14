@@ -1,3 +1,4 @@
+// src/app/api/products/[id]/route.ts
 import { NextResponse, NextRequest } from "next/server";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
