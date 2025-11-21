@@ -1,0 +1,67 @@
+.svgBox {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.svgBox:focus,
+.svgBox:focus-visible {
+  outline: none;
+}
+
+.base path,
+.baseRect {
+  fill: var(--ink);
+  stroke: var(--border);
+  stroke-width: 1px;
+}
+
+.lines path {
+  fill: #fff;
+}
+
+.region {
+  cursor: pointer;
+  outline: none;
+}
+
+.region path,
+.region polygon,
+.region rect {
+  fill: transparent;
+}
+
+.region:hover path,
+.region:focus-visible path {
+  fill: var(--red-600);
+}
+
+.texture {
+  stroke: #9ca3af;
+}
+
+.selected path,
+.selected rect,
+.selected polygon {
+  fill: var(--red-600);
+}
+
+.disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.placeholder {
+  opacity: 0.7;
+}
+
+.placeholderText {
+  fill: #e5e7eb;
+  font-size: 14px;
+}
+
+.hint {
+  fill: #e5e7eb;
+  font-size: 12px;
+  opacity: 0.8;
+}

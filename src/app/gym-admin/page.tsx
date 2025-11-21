@@ -428,11 +428,7 @@ export default function GymAdminPage() {
               <div style={{ fontWeight: 600, margin: "6px 0" }}>Incoming</div>
               <div style={{ display: "grid", gap: 8 }}>
                 {upcoming.map((o) => (
-                  <article
-                    key={o.id}
-                    className="border p-2 rounded"
-                    style={{ opacity: 0.9 }}
-                  >
+                  <article key={o.id} className="card" style={{ opacity: 0.9 }}>
                     <div
                       style={{
                         display: "flex",
@@ -441,11 +437,14 @@ export default function GymAdminPage() {
                       }}
                     >
                       <div>
-                        <b>#{o.shortCode}</b> <Badge s={o.state} />
+                        <b>#{o.shortCode}</b>
                       </div>
-                      <div style={{ color: "#666", fontSize: 12 }}>
-                        {formatDateBudapest(o.createdAt)}
+                      <div>
+                        <Badge s={o.state} />
                       </div>
+                    </div>
+                    <div style={{ color: "var(--border)", fontSize: 12 }}>
+                      {formatDateBudapest(o.createdAt)}
                     </div>
                     <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
                       {o.lines.map((l) => (
@@ -459,7 +458,7 @@ export default function GymAdminPage() {
                         </li>
                       ))}
                     </ul>
-                    <div style={{ color: "#666", fontSize: 12 }}>
+                    <div style={{ color: "var(--border)", fontSize: 12 }}>
                       Pickup: {o.pickupGymName || "—"}
                     </div>
                     <div>
@@ -477,7 +476,7 @@ export default function GymAdminPage() {
               {inTransit.map((o) => {
                 const canArrive = (CAN_DO[o.state] || []).includes("AT_GYM");
                 return (
-                  <article key={o.id} className="border p-2 rounded">
+                  <article key={o.id} className="card">
                     <div
                       style={{
                         display: "flex",
@@ -486,17 +485,18 @@ export default function GymAdminPage() {
                       }}
                     >
                       <div>
-                        <b>#{o.shortCode}</b> <Badge s={o.state} />
+                        <b>#{o.shortCode}</b>
                       </div>
-                      <div style={{ color: "#666", fontSize: 12 }}>
-                        {o.pickupWhen
-                          ? formatDateBudapest(o.pickupWhen)
-                          : formatDateBudapest(o.createdAt)}
+                      <div>
+                        <Badge s={o.state} />
                       </div>
                     </div>
-                    <div>
-                      <b>Total:</b> {formatHuf(o.totalCents)}
+                    <div style={{ color: "var(--border)", fontSize: 12 }}>
+                      {o.pickupWhen
+                        ? formatDateBudapest(o.pickupWhen)
+                        : formatDateBudapest(o.createdAt)}
                     </div>
+
                     <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
                       {o.lines.map((l) => (
                         <li key={l.id}>
@@ -509,8 +509,17 @@ export default function GymAdminPage() {
                         </li>
                       ))}
                     </ul>
-
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <div>
+                      <b>Total:</b> {formatHuf(o.totalCents)}
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        flexWrap: "wrap",
+                        marginTop: "1rem",
+                      }}
+                    >
                       <button
                         className="my_button"
                         onClick={() => move(o.id, "AT_GYM")}
@@ -530,12 +539,13 @@ export default function GymAdminPage() {
         {/* MIDDLE: At Gym */}
         <section className="border rounded p-2">
           <h2 style={{ fontSize: 18, marginBottom: 8 }}>
-            At Gym <span style={{ color: "#666" }}>({atGym.length})</span>
+            At Gym{" "}
+            <span style={{ color: "var(--border)" }}>({atGym.length})</span>
           </h2>
 
           <div style={{ display: "grid", gap: 8 }}>
             {atGym.map((o) => (
-              <article key={o.id} className="border p-2 rounded">
+              <article key={o.id} className="card">
                 <div
                   style={{
                     display: "flex",
@@ -544,11 +554,14 @@ export default function GymAdminPage() {
                   }}
                 >
                   <div>
-                    <b>#{o.shortCode}</b> <Badge s={o.state} />
+                    <b>#{o.shortCode}</b>
                   </div>
-                  <div style={{ color: "#666", fontSize: 12 }}>
-                    {formatDateBudapest(o.createdAt)}
+                  <div>
+                    <Badge s={o.state} />
                   </div>
+                </div>
+                <div style={{ color: "var(--border)", fontSize: 12 }}>
+                  {formatDateBudapest(o.createdAt)}
                 </div>
                 <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
                   {o.lines.map((l) => (
@@ -563,15 +576,15 @@ export default function GymAdminPage() {
                 <div>
                   <b>Total:</b> {formatHuf(o.totalCents)}
                 </div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button
-                    className="my_button"
-                    onClick={() => move(o.id, "PICKED_UP")}
-                    title="Customer picked up"
-                    disabled={gyms.length > 1 && !selectedGymId}
-                  >
-                    Picked up
-                  </button>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 8,
+                    flexWrap: "wrap",
+                    marginTop: "1rem",
+                  }}
+                >
                   <button
                     className="my_button"
                     onClick={() => move(o.id, "CANCELLED")}
@@ -580,19 +593,36 @@ export default function GymAdminPage() {
                   >
                     Cancel
                   </button>
+                  <button
+                    className="my_button"
+                    onClick={() => move(o.id, "PICKED_UP")}
+                    title="Customer picked up"
+                    disabled={gyms.length > 1 && !selectedGymId}
+                  >
+                    Picked up
+                  </button>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    flexWrap: "wrap",
+                    marginTop: "0.375rem",
+                  }}
+                >
                   <a
                     href={`/api/orders/${o.id}/settlement.pdf`}
                     target="_blank"
                     rel="noopener"
                     className="my_button"
                   >
-                    View settlement (PDF)
+                    View(PDF)
                   </a>
                   <a
                     href={`/api/orders/${o.id}/settlement.pdf?download=1`}
                     className="my_button"
                   >
-                    Download settlement (PDF)
+                    Download(PDF)
                   </a>
                 </div>
               </article>
@@ -612,7 +642,7 @@ export default function GymAdminPage() {
                 {completedUnsettled.map((o) => (
                   <article
                     key={o.id}
-                    className="border p-2 rounded"
+                    className="card"
                     style={{ opacity: 0.95 }}
                   >
                     <div
@@ -625,7 +655,7 @@ export default function GymAdminPage() {
                       <div>
                         <b>#{o.shortCode}</b> <Badge s={o.state} />
                       </div>
-                      <div style={{ color: "#666", fontSize: 12 }}>
+                      <div style={{ color: "var(--border)", fontSize: 12 }}>
                         {formatDateBudapest(o.createdAt)}
                       </div>
                     </div>
@@ -662,23 +692,7 @@ export default function GymAdminPage() {
                 <div style={{ fontWeight: 600 }}>
                   Unsettled total: {formatHuf(unsettledTotalCents)}
                 </div>
-                <button
-                  className="my_button"
-                  onClick={settleNow}
-                  disabled={
-                    (gyms.length > 1 && !selectedGymId) ||
-                    completedUnsettled.length === 0
-                  }
-                  title={
-                    gyms.length > 1
-                      ? selectedGymId
-                        ? "Settle for selected gym"
-                        : "Select a gym"
-                      : "Settle"
-                  }
-                >
-                  Settle & Clear
-                </button>
+
                 <button
                   className="my_button"
                   onClick={previewPdf}
@@ -696,6 +710,23 @@ export default function GymAdminPage() {
                 >
                   Preview PDF
                 </button>
+                <button
+                  className="my_button"
+                  onClick={settleNow}
+                  disabled={
+                    (gyms.length > 1 && !selectedGymId) ||
+                    completedUnsettled.length === 0
+                  }
+                  title={
+                    gyms.length > 1
+                      ? selectedGymId
+                        ? "Settle for selected gym"
+                        : "Select a gym"
+                      : "Settle"
+                  }
+                >
+                  Settle & Clear
+                </button>
               </div>
             </>
           ) : (
@@ -706,7 +737,7 @@ export default function GymAdminPage() {
               )}
               <div style={{ display: "grid", gap: 8 }}>
                 {settlements.map((s) => (
-                  <article key={s.id} className="border p-2 rounded">
+                  <article key={s.id} className="card">
                     <div
                       style={{
                         display: "flex",
@@ -717,15 +748,15 @@ export default function GymAdminPage() {
                       <div>
                         <b>Settlement</b> {s.id.slice(0, 8)}…
                       </div>
-                      <div style={{ color: "#666", fontSize: 12 }}>
+                      <div style={{ color: "var(--border)", fontSize: 12 }}>
                         {formatDateBudapest(s.createdAt)}
                       </div>
                     </div>
-                    <div style={{ marginTop: 6, color: "#444" }}>
+                    <div style={{ marginTop: 6, color: "var(--border)" }}>
                       Orders: <b>{s.orderCount}</b> · Total:{" "}
                       <b>{formatHuf(s.totalCents)} </b>
                       {s.createdBy?.email ? (
-                        <span style={{ color: "#666" }}>
+                        <span style={{ color: "var(--border)" }}>
                           {" "}
                           · by {s.createdBy.email}
                         </span>

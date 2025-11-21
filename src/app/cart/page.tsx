@@ -5,29 +5,11 @@ import Link from "next/link";
 import { formatHuf } from "@/lib/format";
 import s from "./cart.module.css";
 
-type CartOption = {
-  groupId: string;
-  optionId: string;
-  label: string;
-  priceDeltaCents: number;
-};
-type CartLine = {
-  id: string;
-  productId: string;
-  name: string;
-  unitLabel: string;
-  basePriceCents: number;
-  options: CartOption[];
-  qty: number;
-};
-type Cart = { lines: CartLine[] };
+import type { Cart, CartLine, CartOption } from "@/lib/product/cart-types";
+import { lineUnitTotalCents } from "@/lib/product/price";
 
 function money(amountHuf: number) {
   return formatHuf(amountHuf);
-}
-function lineUnitTotal(l: CartLine) {
-  const add = l.options.reduce((s, o) => s + o.priceDeltaCents, 0);
-  return l.basePriceCents + add;
 }
 
 export default function CartPage() {
@@ -135,7 +117,6 @@ export default function CartPage() {
   }
 
   // ---- Optimistic Remove ----
-  // replace your removeLine with this
   async function removeLine(lineId: string) {
     const old = cart;
     // optimistic remove
@@ -167,7 +148,6 @@ export default function CartPage() {
   }
 
   // ---- Optimistic Clear ----
-  // replace your clearCart with this
   async function clearCart() {
     const old = cart;
     // optimistic clear
@@ -194,7 +174,7 @@ export default function CartPage() {
   }
 
   const subtotal = useMemo(
-    () => cart.lines.reduce((s, l) => s + lineUnitTotal(l) * l.qty, 0),
+    () => cart.lines.reduce((s, l) => s + lineUnitTotalCents(l) * l.qty, 0),
     [cart.lines]
   );
   const totalQty = useMemo(
@@ -229,7 +209,7 @@ export default function CartPage() {
       {hasItems && (
         <div className={s.list}>
           {cart.lines.map((l) => {
-            const unit = lineUnitTotal(l);
+            const unit = lineUnitTotalCents(l);
             const lineTotal = unit * l.qty;
             const isUpdating = !!pending[l.id];
 
@@ -261,7 +241,9 @@ export default function CartPage() {
                       <li key={o.optionId}>
                         {o.label}
                         {o.priceDeltaCents
-                          ? ` (+${money(o.priceDeltaCents)})`
+                          ? o.perKg
+                            ? ` (+${money(o.priceDeltaCents)} / kg)`
+                            : ` (+${money(o.priceDeltaCents)})`
                           : ""}
                       </li>
                     ))}

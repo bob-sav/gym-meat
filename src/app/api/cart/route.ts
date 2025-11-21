@@ -1,7 +1,8 @@
+// src/app/api/cart/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
-import { cartTotals, getCart, setCart } from "@/lib/cart";
+import { clearCart, cartTotals, getCart, setCart } from "@/lib/cart";
 
 const prisma = new PrismaClient();
 
@@ -13,14 +14,14 @@ const addSchema = z.object({
   qty: z.number().int().positive().default(1),
 });
 
-// GET /api/cart
+// GET
 export async function GET() {
   const cart = await getCart();
   const totals = cartTotals(cart);
   return NextResponse.json({ cart, totals });
 }
 
-// POST /api/cart  (add line)
+// POST
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -35,17 +36,16 @@ export async function POST(req: NextRequest) {
     const {
       productId,
       variantId: variantIdInput,
-      optionIds,
+      optionIds = [],
       qty,
     } = parsed.data;
 
-    // Load product with variants & options
     const p = await prisma.product.findUnique({
       where: { id: productId },
       include: {
         variants: { orderBy: [{ sortOrder: "asc" }, { sizeGrams: "asc" }] },
         optionGroups: {
-          include: { options: true },
+          include: { options: { orderBy: { sortOrder: "asc" } } },
           orderBy: { sortOrder: "asc" },
         },
       },
@@ -60,16 +60,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Pick variant:
-    // - If client sent a variantId, make sure it belongs to this product and is in stock
-    // - Else pick the first in-stock variant (fallback so current UI keeps working)
-    let variant =
+    // --- Variant pick ---
+    const variant =
       (variantIdInput
         ? p.variants.find((v) => v.id === variantIdInput)
         : p.variants.find((v) => v.inStock)) ?? null;
 
     if (!variant) {
-      // as a last resort, allow first variant even if out of stock (but return a 409)
       if (p.variants.length === 0) {
         return NextResponse.json(
           { error: "No variants defined" },
@@ -88,51 +85,140 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Build a flat index of valid options keyed by optionId
-    const optionIndex = new Map(
+    // --- Build indices for group + options ---
+    const groupMap = new Map(
+      p.optionGroups.map((g) => [
+        g.id,
+        {
+          id: g.id,
+          name: g.name,
+          type: g.type as "SINGLE" | "MULTIPLE",
+          required: !!g.required,
+          min: g.minSelect ?? 0,
+          max: g.maxSelect ?? Infinity,
+          options: g.options,
+        },
+      ])
+    );
+
+    type OptEntry = {
+      id: string;
+      groupId: string;
+      label: string;
+      priceDeltaCents: number;
+      perKg: boolean;
+    };
+
+    const optionIndex = new Map<string, OptEntry>(
       p.optionGroups.flatMap((g) =>
         g.options.map((o) => [
           o.id,
-          { groupId: g.id, label: o.label, priceDeltaCents: o.priceDeltaCents },
+          {
+            id: o.id,
+            groupId: g.id,
+            label: o.label,
+            priceDeltaCents: o.priceDeltaCents ?? 0,
+            perKg: !!(g as any).perKg, // Prisma group has perKg boolean
+          },
         ])
       )
     );
 
-    // Keep only valid option ids and attach their details
-    const chosen = (optionIds ?? [])
-      .map((id) => {
-        const d = optionIndex.get(id);
-        return d
-          ? {
-              optionId: id,
-              groupId: d.groupId,
-              label: d.label,
-              priceDeltaCents: d.priceDeltaCents,
-            }
-          : null;
-      })
-      .filter(Boolean) as {
+    // --- Start with valid user selections ---
+    const validChosen = optionIds
+      .map((id) => optionIndex.get(id) || null)
+      .filter(Boolean) as OptEntry[];
+
+    // Group them for constraint checks
+    const byGroup = new Map<string, OptEntry[]>();
+    for (const o of validChosen) {
+      const arr = byGroup.get(o.groupId) || [];
+
+      if (!arr.some((x) => x.id === o.id)) arr.push(o); // de-duplicate within a group
+      byGroup.set(o.groupId, arr);
+    }
+
+    // Include MULTIPLE defaults (server-side too) and enforce constraints
+    for (const g of p.optionGroups) {
+      const meta = groupMap.get(g.id)!;
+      const current = byGroup.get(g.id) || [];
+
+      const defaults = g.options
+        .filter((o) => o.isDefault)
+        .map((o) => optionIndex.get(o.id)!)
+        .filter(Boolean);
+
+      // add defaults if missing
+      for (const d of defaults) {
+        if (!current.some((x) => x.id === d.id)) current.push(d);
+      }
+
+      if (meta.type === "SINGLE") {
+        let keep: OptEntry | undefined = current[0];
+        if (!keep && meta.required) {
+          const def =
+            defaults[0] ?? (g.options[0] && optionIndex.get(g.options[0].id)!);
+          if (def) keep = def;
+        }
+        byGroup.set(g.id, keep ? [keep] : []);
+      } else {
+        let kept = current.slice(0, meta.max);
+        if (kept.length < meta.min) {
+          for (const d of defaults) {
+            if (kept.length >= meta.min) break;
+            if (!kept.some((x) => x.id === d.id)) kept.push(d);
+          }
+          kept = kept.slice(0, meta.max);
+        }
+        byGroup.set(g.id, kept);
+      }
+    }
+
+    const chosen: Array<{
       optionId: string;
       groupId: string;
       label: string;
       priceDeltaCents: number;
-    }[];
+      perKg: boolean;
+    }> = Array.from(byGroup.values())
+      .flat()
+      .map((o) => ({
+        optionId: o.id,
+        groupId: o.groupId,
+        label: o.label,
+        priceDeltaCents: o.priceDeltaCents,
+        perKg: o.perKg,
+      }));
 
-    // Create line (note: unitLabel now derived from variant.sizeGrams)
+    // --- Build line ---
     const line = {
       id: crypto.randomUUID(),
       productId: p.id,
       name: p.name,
-      unitLabel: `${variant.sizeGrams}g`,
+      unitLabel: `${(variant.sizeGrams / 1000).toFixed(2)} kg`,
       basePriceCents: variant.priceCents,
+      variantSizeGrams: variant.sizeGrams,
       options: chosen,
       qty,
     };
 
-    // Append to cookie cart
+    // --- Merge identical lines (same product, grams, same options set) ---
     const cart = await getCart();
-    cart.lines.push(line);
-    const res = NextResponse.json({ line });
+    const keyOf = (l: typeof line) =>
+      `${l.productId}|${l.variantSizeGrams}|${l.options
+        .map((o) => o.optionId)
+        .sort()
+        .join(",")}`;
+
+    const newKey = keyOf(line);
+    const existing = cart.lines.find((l) => keyOf(l as any) === newKey);
+    if (existing) {
+      existing.qty += qty;
+    } else {
+      cart.lines.push(line as any);
+    }
+
+    const res = NextResponse.json({ cart, totals: cartTotals(cart) });
     setCart(res, cart);
     return res;
   } catch (e) {
@@ -141,9 +227,10 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// DELETE /api/cart  (clear)
+// DELETE /api/cart (clear)
 export async function DELETE() {
-  const res = NextResponse.json({ ok: true });
-  setCart(res, { lines: [] });
+  const empty = { lines: [] };
+  const res = NextResponse.json({ cart: empty, totals: cartTotals(empty) });
+  setCart(res, empty);
   return res;
 }

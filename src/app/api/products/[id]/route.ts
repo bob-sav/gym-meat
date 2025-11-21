@@ -34,6 +34,17 @@ const PartValues = [
 
 const OptionGroupTypeValues = ["SINGLE", "MULTIPLE"] as const;
 
+const variantUpdateSchema = z.array(
+  z.object({
+    id: z.string().optional(),
+    sizeGrams: z.number().int().positive(),
+    priceCents: z.number().int().nonnegative(),
+    sku: z.string().trim().min(1).optional().nullable(),
+    inStock: z.boolean().optional(),
+    sortOrder: z.number().int().nonnegative().optional(),
+  })
+);
+
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
   species: z.enum(SpeciesValues).optional(),
@@ -41,8 +52,6 @@ const updateSchema = z.object({
   description: z.string().optional().nullable(),
   imageUrl: z.string().url().optional().nullable(),
   active: z.boolean().optional(),
-
-  // Full replace of option groups (same behavior you had)
   optionGroups: z
     .array(
       z.object({
@@ -52,6 +61,7 @@ const updateSchema = z.object({
         minSelect: z.number().int().min(0).nullable().optional(),
         maxSelect: z.number().int().min(0).nullable().optional(),
         sortOrder: z.number().int().nonnegative().default(0),
+        perKg: z.boolean().default(false),
         options: z
           .array(
             z.object({
@@ -65,6 +75,10 @@ const updateSchema = z.object({
       })
     )
     .optional(),
+
+  // NEW
+  variants: variantUpdateSchema.optional(),
+  pruneRemovedVariants: z.boolean().optional(),
 });
 
 // GET /api/products/[id]
@@ -87,7 +101,6 @@ export async function GET(
   return NextResponse.json({ item });
 }
 
-// PUT /api/products/[id]
 export async function PUT(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
@@ -108,9 +121,8 @@ export async function PUT(
         { status: 400 }
       );
     }
-    const d = parsed.data;
+    const d = parsed.data as z.infer<typeof updateSchema>;
 
-    // Only map top-level fields that exist on the new Product model
     const data: any = {};
     for (const k of [
       "name",
@@ -124,7 +136,7 @@ export async function PUT(
     }
 
     const res = await prisma.$transaction(async (tx) => {
-      // Replace option groups if provided (same semantics as before)
+      // option groups full replace (as before)
       if (d.optionGroups) {
         await tx.productOption.deleteMany({
           where: { group: { productId: id } },
@@ -141,6 +153,7 @@ export async function PUT(
               minSelect: g.minSelect ?? null,
               maxSelect: g.maxSelect ?? null,
               sortOrder: g.sortOrder ?? 0,
+              perKg: g.perKg ?? false,
             },
           });
           if (g.options?.length) {
@@ -152,6 +165,67 @@ export async function PUT(
                 isDefault: o.isDefault ?? false,
                 sortOrder: o.sortOrder ?? 0,
               })),
+            });
+          }
+        }
+      }
+
+      // NEW: variants upsert (non-destructive by default)
+      if (d.variants) {
+        const existing = await tx.productVariant.findMany({
+          where: { productId: id },
+        });
+
+        const seen = new Set<string>();
+        for (const v of d.variants) {
+          const matchById = v.id ? existing.find((e) => e.id === v.id) : null;
+          const matchBySize = existing.find((e) => e.sizeGrams === v.sizeGrams);
+
+          if (matchById) {
+            seen.add(matchById.id);
+            await tx.productVariant.update({
+              where: { id: matchById.id },
+              data: {
+                sizeGrams: v.sizeGrams,
+                priceCents: v.priceCents,
+                sku: v.sku ?? null,
+                inStock: v.inStock ?? true,
+                sortOrder: v.sortOrder ?? 0,
+              },
+            });
+          } else if (matchBySize) {
+            seen.add(matchBySize.id);
+            await tx.productVariant.update({
+              where: { id: matchBySize.id },
+              data: {
+                sizeGrams: v.sizeGrams,
+                priceCents: v.priceCents,
+                sku: v.sku ?? null,
+                inStock: v.inStock ?? true,
+                sortOrder: v.sortOrder ?? 0,
+              },
+            });
+          } else {
+            const created = await tx.productVariant.create({
+              data: {
+                productId: id,
+                sizeGrams: v.sizeGrams,
+                priceCents: v.priceCents,
+                sku: v.sku ?? null,
+                inStock: v.inStock ?? true,
+                sortOrder: v.sortOrder ?? 0,
+              },
+            });
+            seen.add(created.id);
+          }
+        }
+
+        // optional pruning (danger: can orphan carts with old variant ids)
+        if (d.pruneRemovedVariants) {
+          const toDelete = existing.filter((e) => !seen.has(e.id));
+          if (toDelete.length) {
+            await tx.productVariant.deleteMany({
+              where: { id: { in: toDelete.map((t) => t.id) } },
             });
           }
         }

@@ -1,5 +1,6 @@
+// src/app/api/cart/[lineId]/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { getCart, setCart } from "@/lib/cart";
+import { cartTotals, getCart, setCart } from "@/lib/cart";
 import { z } from "zod";
 
 const qtySchema = z.object({ qty: z.number().int().positive() });
@@ -24,9 +25,11 @@ export async function PATCH(
     const idx = cart.lines.findIndex((l) => l.id === lineId);
     if (idx < 0)
       return NextResponse.json({ error: "Not found" }, { status: 404 });
-    cart.lines[idx].qty = parsed.data.qty;
 
-    const res = NextResponse.json({ line: cart.lines[idx] });
+    // optional clamp
+    cart.lines[idx].qty = Math.max(1, parsed.data.qty);
+
+    const res = NextResponse.json({ cart, totals: cartTotals(cart) });
     setCart(res, cart);
     return res;
   } catch (e) {
@@ -42,8 +45,8 @@ export async function DELETE(
 ) {
   const { lineId } = await ctx.params;
   const cart = await getCart();
-  const nextLines = cart.lines.filter((l) => l.id !== lineId);
-  const res = new NextResponse(null, { status: 204 });
-  setCart(res, { lines: nextLines });
+  cart.lines = cart.lines.filter((l) => l.id !== lineId);
+  const res = NextResponse.json({ cart, totals: cartTotals(cart) });
+  setCart(res, cart);
   return res;
 }

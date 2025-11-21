@@ -90,6 +90,11 @@ button {
   cursor: pointer;
 }
 
+select option {
+  background: #fff; /* white background for dropdown list */
+  color: #000; /* black text color */
+}
+
 :focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
@@ -119,10 +124,9 @@ button {
 }
 
 .card {
-  background: var(--surface-strong);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 12px;
+  padding: 8px;
 }
 
 /* ===========================

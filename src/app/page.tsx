@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import Link from "next/link";
 
 export default async function Home() {
   const session = await auth();
@@ -13,11 +14,14 @@ export default async function Home() {
             Signed in as <b>{session.user.email}</b>
           </p>
           <p>Name: {session.user.name ?? "—"}</p>
-          <p style={{ marginTop: 8 }}>
-            <a href="/api/auth/signout" className="border p-2 rounded">
-              Sign out
-            </a>
-          </p>
+
+          <Link
+            style={{ marginTop: 8 }}
+            className="my_button"
+            href="/api/auth/signout"
+          >
+            Sign out
+          </Link>
         </div>
       ) : (
         <p>

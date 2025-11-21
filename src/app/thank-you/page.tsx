@@ -88,7 +88,7 @@ export default async function ThankYouPage({
         </>
       ) : (
         <p>
-          No recent order found. <Link href="/products">Browse products</Link>{" "}
+          No recent order found. <Link href="/storefront">Browse products</Link>{" "}
           or <Link href="/orders">see your orders</Link>.
         </p>
       )}

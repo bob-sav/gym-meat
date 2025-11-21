@@ -1,0 +1,36 @@
+.wrap {
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+.header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+.title {
+  font-size: 18px;
+  font-weight: 700;
+}
+.close {
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: 36px;
+  height: 36px;
+  cursor: pointer;
+}
+.hero {
+  width: 100%;
+  border-radius: 12px;
+  object-fit: cover;
+}
+.blurb {
+  opacity: 0.9;
+}
+.tips {
+  display: grid;
+  gap: 6px;
+  padding-left: 18px;
+}

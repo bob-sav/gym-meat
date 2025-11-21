@@ -1,3 +1,4 @@
+// src/app/butcher/page.tsx
 "use client";
 
 import { formatHuf, formatDateBudapest } from "@/lib/format";
@@ -57,8 +58,17 @@ export default function ButcherBoard() {
   const [showSent, setShowSent] = useState(false);
   const [poll, setPoll] = useState(true);
   const [speciesFilter, setSpeciesFilter] = useState<string>("");
+  const [prepFilter, setPrepFilter] = useState<
+    "" | "WHOLE" | "DICED" | "GROUND"
+  >("");
   const [search, setSearch] = useState("");
   const [sentSort, setSentSort] = useState<"newest" | "oldest">("newest");
+
+  // helper: robust case-insensitive match (handles labels like "Whole", "Ground meat", etc.)
+  function matchesPrep(li: LineItem, target: "WHOLE" | "DICED" | "GROUND") {
+    const needle = target.toLowerCase();
+    return (li.prepLabels || []).some((p) => p.toLowerCase().includes(needle));
+  }
 
   const load = useCallback(async () => {
     try {
@@ -121,9 +131,15 @@ export default function ButcherBoard() {
   const filtered = useMemo(() => {
     let arr = items.slice();
 
-    // NOTE: we no longer filter SENT here; the server already does it via ?sent=...
+    // species filter
     if (speciesFilter) arr = arr.filter((l) => l.species === speciesFilter);
 
+    // prep filter
+    if (prepFilter) {
+      arr = arr.filter((l) => matchesPrep(l, prepFilter));
+    }
+
+    // search (code / product / prep)
     if (search) {
       const s = search.toLowerCase();
       arr = arr.filter(
@@ -133,8 +149,9 @@ export default function ButcherBoard() {
           (l.prepLabels || []).some((p) => p.toLowerCase().includes(s))
       );
     }
+
     return arr;
-  }, [items, speciesFilter, search]);
+  }, [items, speciesFilter, prepFilter, search]);
 
   // Only the SENT cards; sorted for the history view when showSent is ON
   const sentList = useMemo(() => {
@@ -239,6 +256,74 @@ export default function ButcherBoard() {
           ))}
         </select>
 
+        {/* Prep filter: Whole / Diced / Ground */}
+        <fieldset
+          style={{
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            padding: "6px 10px",
+          }}
+        >
+          <legend style={{ fontSize: 12, opacity: 0.85, padding: "0 4px" }}>
+            Prep
+          </legend>
+
+          <label
+            style={{ display: "inline-flex", gap: 6, alignItems: "center" }}
+          >
+            <input
+              type="radio"
+              name="prepFilter"
+              value=""
+              checked={prepFilter === ""}
+              onChange={() => setPrepFilter("")}
+            />
+            All
+          </label>
+
+          <label
+            style={{ display: "inline-flex", gap: 6, alignItems: "center" }}
+          >
+            <input
+              type="radio"
+              name="prepFilter"
+              value="WHOLE"
+              checked={prepFilter === "WHOLE"}
+              onChange={() => setPrepFilter("WHOLE")}
+            />
+            Whole
+          </label>
+
+          <label
+            style={{ display: "inline-flex", gap: 6, alignItems: "center" }}
+          >
+            <input
+              type="radio"
+              name="prepFilter"
+              value="DICED"
+              checked={prepFilter === "DICED"}
+              onChange={() => setPrepFilter("DICED")}
+            />
+            Diced
+          </label>
+
+          <label
+            style={{ display: "inline-flex", gap: 6, alignItems: "center" }}
+          >
+            <input
+              type="radio"
+              name="prepFilter"
+              value="GROUND"
+              checked={prepFilter === "GROUND"}
+              onChange={() => setPrepFilter("GROUND")}
+            />
+            Ground
+          </label>
+        </fieldset>
+
         <input
           placeholder="Search code / product / prep"
           className="border p-2 rounded"
@@ -279,46 +364,57 @@ export default function ButcherBoard() {
                   (orderSendable.get(li.orderId) ?? false);
 
                 return (
-                  <article key={li.id} className="border p-2 rounded">
+                  <article key={li.id} className="card">
                     <div
                       style={{
                         display: "flex",
                         justifyContent: "space-between",
-                        gap: 8,
+                        gap: "8px",
                       }}
                     >
                       <div>
                         <b>#{li.shortCode}</b>{" "}
-                        <span style={{ color: "#666" }}>
-                          ({li.indexOf?.i ?? 1} of {li.indexOf?.n ?? 1})
-                        </span>
                       </div>
-                      <div style={{ color: "#666", fontSize: 12 }}>
-                        {formatDateBudapest(li.createdAt)}
+                      <div>
+                        <b>
+                          ({li.indexOf?.i ?? 1} of {li.indexOf?.n ?? 1})
+                        </b>
                       </div>
                     </div>
 
-                    <div style={{ marginTop: 6 }}>
-                      <div style={{ fontWeight: 600 }}>{li.productName}</div>
-                      <div style={{ color: "#666", fontSize: 13 }}>
+                    <div style={{ marginTop: "1rem" }}>
+                      <div style={{ fontWeight: 600 }}>
+                        {li.species} {li.part ? ` · ${li.part}` : ""}
+                      </div>
+                      <div style={{ fontWeight: 600, marginTop: "0.375rem" }}>
                         {li.qty}×{li.unitLabel ? ` · ${li.unitLabel}` : ""}
                         {li.variantSizeGrams
                           ? ` · ${li.variantSizeGrams}g`
                           : ""}
-                        {li.part ? ` · ${li.part}` : ""}
-                        {li.pickupGymName ? ` · Gym: ${li.pickupGymName}` : ""}
                       </div>
                       {!!li.prepLabels?.length && (
-                        <div style={{ marginTop: 4, fontSize: 13 }}>
+                        <div style={{ marginTop: "0.375rem", fontWeight: 600 }}>
                           Prep: {li.prepLabels.join(", ")}
                         </div>
                       )}
+
                       {li.lineState === "READY" && (
-                        <div className="total">
+                        <div style={{ marginTop: "1rem" }} className="total">
                           {/* Replace this with your actual total calculation and display */}
                           Total: {formatHuf(li.basePriceCents * li.qty)}
                         </div>
                       )}
+                    </div>
+                    <div style={{ marginTop: "1rem" }}>
+                      <div style={{ fontWeight: 300, fontSize: "0.9rem" }}>
+                        {li.pickupGymName ? ` Gym: ${li.pickupGymName}` : ""}
+                      </div>
+                      <div style={{ fontWeight: 300, fontSize: "0.9rem" }}>
+                        {li.productName}
+                      </div>
+                      <div style={{ fontSize: "0.75rem" }}>
+                        {formatDateBudapest(li.createdAt)}
+                      </div>
                     </div>
 
                     <div

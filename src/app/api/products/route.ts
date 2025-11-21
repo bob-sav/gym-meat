@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 
+import { normalizeProduct } from "@/lib/product/normalize";
+
 import { auth } from "@/auth";
 import { isSiteAdminEmail } from "@/lib/roles";
 
@@ -50,6 +52,7 @@ const groupSchema = z.object({
   minSelect: z.number().int().min(0).optional(),
   maxSelect: z.number().int().min(0).optional(),
   sortOrder: z.number().int().nonnegative().default(0),
+  perKg: z.boolean().default(false),
   options: z.array(optionSchema).default([]),
 });
 
@@ -75,20 +78,58 @@ const createSchema = z.object({
 /** ---- GET /api/products ----
  * Returns products + variants + option groups (and their options)
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const normalized = req.nextUrl.searchParams.get("normalized") === "1";
+
   const items = await prisma.product.findMany({
     orderBy: { createdAt: "desc" },
     include: {
-      variants: {
-        orderBy: [{ sortOrder: "asc" }, { sizeGrams: "asc" }],
-      },
+      variants: { orderBy: [{ sortOrder: "asc" }, { sizeGrams: "asc" }] },
       optionGroups: {
         orderBy: { sortOrder: "asc" },
         include: { options: { orderBy: { sortOrder: "asc" } } },
       },
     },
   });
-  return NextResponse.json({ items });
+
+  if (!normalized) return NextResponse.json({ items });
+
+  const mapped = items.map((db) =>
+    normalizeProduct({
+      id: db.id,
+      name: db.name,
+      species: db.species as any,
+      part: db.part as any,
+      imageUrl: db.imageUrl,
+      active: db.active,
+      variants: db.variants.map((v) => ({
+        id: v.id,
+        sizeGrams: v.sizeGrams,
+        priceCents: v.priceCents,
+        inStock: v.inStock,
+        sortOrder: v.sortOrder,
+      })),
+      optionGroups: db.optionGroups.map((g) => ({
+        id: g.id,
+        name: g.name,
+        type: g.type as any,
+        required: g.required,
+        minSelect: g.minSelect,
+        maxSelect: g.maxSelect,
+        sortOrder: g.sortOrder,
+        perKg: g.perKg,
+        options: g.options.map((o) => ({
+          id: o.id,
+          label: o.label,
+          priceDeltaCents: o.priceDeltaCents ?? 0,
+          isDefault: o.isDefault,
+          sortOrder: o.sortOrder,
+        })),
+      })),
+    })
+  );
+
+  return NextResponse.json({ items: mapped });
 }
 
 /** ---- POST /api/products ----
@@ -140,6 +181,7 @@ export async function POST(req: NextRequest) {
             minSelect: g.minSelect ?? null,
             maxSelect: g.maxSelect ?? null,
             sortOrder: g.sortOrder,
+            perKg: g.perKg ?? false,
             options: {
               create: g.options.map((o) => ({
                 label: o.label,

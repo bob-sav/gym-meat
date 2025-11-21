@@ -5,7 +5,7 @@
 }
 .title {
   font-family: var(--font-display);
-  letter-spacing: 0.2px;
+  letter-spacing: 0.04rem;
   font-size: 24px;
   margin: 8px 0 12px;
 }
@@ -46,13 +46,13 @@
   transition:
     background 0.15s ease,
     color 0.15s ease,
-    border-color 0.15s ease,
+    outline-color 0.15s ease,
     transform 0.06s ease;
 }
 
 .speciesItem:hover .speciesIcon {
   background-color: #fff;
-  border: 2px solid var(--red-600);
+  outline-color: var(--red-600);
 }
 
 .speciesItem:hover .speciesIcon svg {
@@ -72,34 +72,34 @@
 .speciesIcon {
   width: 56px;
   height: 56px;
-  border-radius: 999px;
-  border: 2px solid #fff;
+  outline: 2px solid #fff;
+  outline-offset: 0px;
   display: grid;
-  place-items: center;
+  align-content: center;
+  border-radius: 50%;
   background: var(--red-600);
   transition:
     background 0.15s ease,
-    border-color 0.15s ease;
+    outline-color 0.15s ease;
 }
 .speciesLabel {
   font-size: 14px;
   font-family: var(--font-display);
-  letter-spacing: 0.08rem;
+  letter-spacing: 0.04rem;
   font-weight: 400;
 }
 
 .speciesIcon svg {
   fill: #fff;
+  clip-path: circle(50%);
 }
 
 /* Selected state — prefer aria-selected, keep aria-pressed for back-compat */
-.speciesItem[aria-selected="true"] .speciesIcon,
-.speciesItem[aria-pressed="true"] .speciesIcon {
+.speciesItem[aria-selected="true"] .speciesIcon {
   background-color: #fff;
-  border-color: var(--ring);
+  outline-color: var(--ring);
 }
-.speciesItem[aria-selected="true"] .speciesIcon svg,
-.speciesItem[aria-pressed="true"] .speciesIcon svg {
+.speciesItem[aria-selected="true"] .speciesIcon svg {
   fill: var(--red-600);
 }
 
@@ -157,7 +157,7 @@
   border: 1px solid var(--border);
   color: #fff;
   font-family: var(--font-display);
-  letter-spacing: 0.08rem;
+  letter-spacing: 0.04rem;
   font-weight: 400;
   padding: 0.3rem 0.6rem;
   border-radius: 999px;
@@ -183,6 +183,7 @@
   background: #fff;
   border-color: var(--ring);
   color: var(--red-600);
+  font-weight: 600;
 }
 
 /* =========================
@@ -222,7 +223,7 @@
   border: 1px solid var(--border);
   color: #fff;
   font-family: var(--font-display);
-  letter-spacing: 0.08rem;
+  letter-spacing: 0.04rem;
   font-weight: 400;
   padding: 0.3rem 0.6rem;
   border-radius: 999px;
@@ -249,6 +250,7 @@
   background: #fff;
   border-color: var(--ring);
   color: var(--red-600);
+  font-weight: 600;
 }
 
 /* =========================
@@ -262,6 +264,7 @@
   min-height: 260px;
   display: grid;
   place-items: center;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* =========================
@@ -381,4 +384,65 @@
 .btnPrimary:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* Floating guide toggle */
+.guideToggle {
+  position: fixed;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 30;
+
+  display: inline-grid;
+  grid-auto-flow: column;
+  align-items: center;
+  gap: 8px;
+
+  padding: 10px 12px;
+  border-radius: 999px;
+  border: 1px solid #fff;
+  background: var(--red-600);
+  color: #fff;
+  cursor: pointer;
+
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  backdrop-filter: saturate(1.1) blur(2px);
+}
+
+.guideToggle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.guideToggle .guideIcon {
+  display: grid;
+  place-items: center;
+  line-height: 0;
+}
+
+.guideLabel {
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+/* When open, subtly invert for feedback */
+.open.guideToggle {
+  background: var(--meat-red-2);
+}
+
+/* Mobile: lift above sticky checkout bar, anchor bottom-right */
+@media (max-width: 900px) {
+  .guideToggle {
+    top: auto;
+    bottom: calc(env(safe-area-inset-bottom) + 210px);
+    transform: none;
+    right: 12px;
+
+    /* tighter footprint on small screens */
+    padding: 10px;
+  }
+  .guideLabel {
+    display: none; /* icon-only on mobile */
+  }
 }

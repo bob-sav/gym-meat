@@ -6,6 +6,10 @@ import { formatHuf, formatDateBudapest } from "@/lib/format";
 import { PrismaClient } from "@prisma/client";
 import Link from "next/link";
 
+import type { CartLine, CartOption } from "@/lib/product/cart-types";
+import { lineUnitTotalCents, parseUnitLabelToGrams } from "@/lib/product/price";
+import CartBumpClient from "./CartBumpClient";
+
 const prisma = new PrismaClient();
 
 function money(amountHuf: number) {
@@ -57,6 +61,7 @@ export default async function OrdersPage() {
           qty: true,
           unitLabel: true,
           basePriceCents: true,
+          variantSizeGrams: true,
           species: true,
           part: true,
           optionsJson: true, // Json column with chosen options
@@ -121,7 +126,9 @@ export default async function OrdersPage() {
                 <b>Pickup:</b> {o.pickupGymName ?? "—"}
                 {o.pickupWhen ? `, ${formatDateBudapest(o.pickupWhen)}` : ""}
               </div>
-              <div style={{ color: "#666", fontSize: 12, marginTop: 2 }}>
+              <div
+                style={{ color: "var(--border)", fontSize: 12, marginTop: 2 }}
+              >
                 Placed: {formatDateBudapest(o.createdAt)}
               </div>
 
@@ -137,13 +144,80 @@ export default async function OrdersPage() {
                   }}
                 >
                   {o.lines.map((l) => {
-                    const options =
-                      (l.optionsJson as unknown as {
-                        label: string;
-                        priceDeltaCents?: number;
-                      }[]) ?? [];
-                    const unit = l.unitLabel ? ` · ${l.unitLabel}` : "";
-                    const lineTotal = l.basePriceCents * l.qty; // base only; options are additive already in pricing
+                    type StoredOpt = {
+                      label: string;
+                      priceDeltaCents?: number;
+                      perKg?: boolean;
+                      priceDeltaPerKgCents?: number; // legacy
+                      groupId?: string;
+                      optionId?: string;
+                    };
+
+                    const storedOptions =
+                      (l.optionsJson as unknown as StoredOpt[]) ?? [];
+
+                    const options: CartOption[] = storedOptions.map(
+                      (op, idx) => {
+                        const legacyPerKg =
+                          typeof op.priceDeltaPerKgCents === "number" &&
+                          op.priceDeltaPerKgCents !== 0;
+
+                        const perKg =
+                          typeof op.perKg === "boolean"
+                            ? op.perKg
+                            : legacyPerKg;
+
+                        const priceDeltaCents =
+                          typeof op.priceDeltaCents === "number"
+                            ? op.priceDeltaCents
+                            : legacyPerKg
+                              ? (op.priceDeltaPerKgCents ?? 0)
+                              : 0;
+
+                        return {
+                          groupId: op.groupId ?? `legacy-group-${idx}`,
+                          optionId: op.optionId ?? `legacy-opt-${idx}`,
+                          label: op.label ?? "",
+                          priceDeltaCents,
+                          perKg,
+                        };
+                      }
+                    );
+
+                    const lineForMath: CartLine = {
+                      id: l.id,
+                      productId: o.id,
+                      name: l.productName,
+                      unitLabel: l.unitLabel ?? "",
+                      basePriceCents: l.basePriceCents,
+                      qty: l.qty,
+                      variantSizeGrams: l.variantSizeGrams ?? undefined,
+                      options,
+                    };
+
+                    const unitTotalCents = lineUnitTotalCents(lineForMath);
+                    const lineTotalCents = unitTotalCents * l.qty;
+
+                    const grams =
+                      l.variantSizeGrams ??
+                      parseUnitLabelToGrams(l.unitLabel ?? "") ??
+                      0;
+
+                    const fixedAddCents = options
+                      .filter((op) => !op.perKg)
+                      .reduce((s, op) => s + op.priceDeltaCents, 0);
+
+                    const perKgSum = options
+                      .filter((op) => op.perKg)
+                      .reduce((s, op) => s + op.priceDeltaCents, 0);
+
+                    const perKgForVariantCents = Math.round(
+                      perKgSum * (grams / 1000)
+                    );
+
+                    const unitSuffix = l.unitLabel ? ` · ${l.unitLabel}` : "";
+
+                    const money = (amountHuf: number) => formatHuf(amountHuf);
 
                     return (
                       <div
@@ -157,37 +231,60 @@ export default async function OrdersPage() {
                         <div>
                           <div style={{ fontWeight: 500 }}>
                             {l.qty} × {l.productName}
-                            <span style={{ color: "#666" }}>{unit}</span>
+                            <span style={{ color: "var(--border)" }}>
+                              {unitSuffix}
+                            </span>
                           </div>
-                          <div style={{ fontSize: 12, color: "#666" }}>
+
+                          <div style={{ fontSize: 12, color: "var(--border)" }}>
                             {l.species}
                             {l.part ? ` · ${l.part}` : ""}
                           </div>
+
                           {!!options.length && (
                             <div
                               style={{
                                 fontSize: 12,
-                                color: "#444",
+                                color: "var(--border)",
                                 marginTop: 2,
                               }}
                             >
                               {options
-                                .map(
-                                  (o) =>
-                                    `${o.label}${
-                                      o.priceDeltaCents
-                                        ? ` (+${money(o.priceDeltaCents)})`
-                                        : ""
-                                    }`
-                                )
+                                .map((op) => {
+                                  if (!op.priceDeltaCents) return op.label;
+                                  return op.perKg
+                                    ? `${op.label} (+${money(
+                                        op.priceDeltaCents
+                                      )} / kg)`
+                                    : `${op.label} (+${money(op.priceDeltaCents)})`;
+                                })
                                 .join(", ")}
                             </div>
                           )}
+
+                          {/* Breakdown per unit */}
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "var(--order)",
+                              marginTop: 4,
+                            }}
+                          >
+                            Unit: {money(unitTotalCents)} ={" "}
+                            {money(l.basePriceCents)} base
+                            {fixedAddCents
+                              ? ` + ${money(fixedAddCents)} opts`
+                              : ""}
+                            {perKgForVariantCents
+                              ? ` + ${money(perKgForVariantCents)} per-kg`
+                              : ""}
+                          </div>
                         </div>
+
                         <div
                           style={{ textAlign: "right", whiteSpace: "nowrap" }}
                         >
-                          {money(lineTotal)}
+                          {money(lineTotalCents)}
                         </div>
                       </div>
                     );
@@ -198,6 +295,7 @@ export default async function OrdersPage() {
           ))}
         </div>
       )}
+      <CartBumpClient />
     </main>
   );
 }

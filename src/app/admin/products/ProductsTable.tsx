@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { formatHuf } from "@/lib/format";
+import ProductEditModal from "./ProductEditModal";
 
 type Variant = {
   sizeGrams: number;
@@ -55,6 +56,8 @@ export default function ProductsTable() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
+  const [editId, setEditId] = useState<string | null>(null);
+
   async function load() {
     setLoading(true);
     setErr(null);
@@ -83,7 +86,6 @@ export default function ProductsTable() {
     await load();
   }
 
-  // Rename-only quick edit (safe regardless of PUT validator)
   async function onQuickEdit(p: Product) {
     const name = prompt("Name:", p.name);
     if (name === null) return;
@@ -108,50 +110,78 @@ export default function ProductsTable() {
   if (!items.length) return <div>No products yet.</div>;
 
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead>
-          <tr style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>
-            <th style={{ padding: 8 }}>Name</th>
-            <th style={{ padding: 8 }}>Species</th>
-            <th style={{ padding: 8 }}>Sizes</th>
-            <th style={{ padding: 8 }}>Prices</th>
-            <th style={{ padding: 8 }}>Variants</th>
-            <th style={{ padding: 8 }}>Active</th>
-            <th style={{ padding: 8, width: 220 }}>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((p) => {
-            const sum = summarizeVariants(p.variants || []);
-            return (
-              <tr key={p.id} style={{ borderBottom: "1px solid #eee" }}>
-                <td style={{ padding: 8 }}>{p.name}</td>
-                <td style={{ padding: 8 }}>{p.species}</td>
-                <td style={{ padding: 8 }}>{sum.sizes}</td>
-                <td style={{ padding: 8 }}>{sum.prices}</td>
-                <td style={{ padding: 8 }}>
-                  {sum.count} total · {sum.inStockCount} in stock
-                </td>
-                <td style={{ padding: 8 }}>{p.active ? "✅" : "❌"}</td>
-                <td style={{ padding: 8, display: "flex", gap: 8 }}>
-                  <button className="my_button" onClick={() => onQuickEdit(p)}>
-                    Quick edit
-                  </button>
-                  <button className="my_button" onClick={() => onDelete(p.id)}>
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>
+              <th style={{ padding: 8 }}>Name</th>
+              <th style={{ padding: 8 }}>Species</th>
+              <th style={{ padding: 8 }}>Sizes</th>
+              <th style={{ padding: 8 }}>Prices</th>
+              <th style={{ padding: 8 }}>Variants</th>
+              <th style={{ padding: 8 }}>Active</th>
+              <th style={{ padding: 8, width: 280 }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((p) => {
+              const sum = summarizeVariants(p.variants || []);
+              return (
+                <tr key={p.id} style={{ borderBottom: "1px solid #eee" }}>
+                  <td style={{ padding: 8 }}>{p.name}</td>
+                  <td style={{ padding: 8 }}>{p.species}</td>
+                  <td style={{ padding: 8 }}>{sum.sizes}</td>
+                  <td style={{ padding: 8 }}>{sum.prices}</td>
+                  <td style={{ padding: 8 }}>
+                    {sum.count} total · {sum.inStockCount} in stock
+                  </td>
+                  <td style={{ padding: 8 }}>{p.active ? "✅" : "❌"}</td>
+                  <td
+                    style={{
+                      padding: 8,
+                      display: "flex",
+                      gap: 8,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <button
+                      className="my_button"
+                      onClick={() => onQuickEdit(p)}
+                    >
+                      Quick edit
+                    </button>
+                    <button
+                      className="my_button"
+                      onClick={() => setEditId(p.id)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="my_button"
+                      onClick={() => onDelete(p.id)}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
 
-      <div style={{ fontSize: 12, color: "#666", marginTop: 8 }}>
-        (Gyors név szerkesztés itt. Részletes szerkesztés—variánsok és
-        opciók—később jön.)
+        <div style={{ fontSize: 12, color: "#666", marginTop: 8 }}>
+          (Gyors név szerkesztés itt. Részletes szerkesztés—variánsok és
+          opciók—itt az **Edit** gombbal.)
+        </div>
       </div>
-    </div>
+
+      <ProductEditModal
+        id={editId}
+        open={!!editId}
+        onClose={() => setEditId(null)}
+        onSaved={load}
+      />
+    </>
   );
 }

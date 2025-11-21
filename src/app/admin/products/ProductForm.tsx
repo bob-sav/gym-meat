@@ -8,6 +8,7 @@ type GroupType = "SINGLE" | "MULTIPLE";
 type OptionInput = {
   label: string;
   priceDeltaCents?: number;
+  priceDeltaPerKgCents?: number;
   isDefault?: boolean;
   sortOrder?: number;
 };
@@ -19,6 +20,7 @@ type GroupInput = {
   minSelect?: number | null;
   maxSelect?: number | null;
   sortOrder?: number;
+  perKg?: boolean;
   options: OptionInput[];
 };
 
@@ -39,6 +41,17 @@ const DEFAULT_GROUPS: GroupInput[] = [
       { label: "Whole", isDefault: true, priceDeltaCents: 0, sortOrder: 0 },
       { label: "Diced", priceDeltaCents: 0, sortOrder: 1 },
       { label: "Ground", priceDeltaCents: 0, sortOrder: 2 },
+    ],
+  },
+  {
+    name: "Origin",
+    type: "SINGLE",
+    required: true,
+    perKg: true,
+    options: [
+      { label: "Local", isDefault: true, priceDeltaPerKgCents: 0 },
+      { label: "Angus", priceDeltaPerKgCents: 2000 },
+      { label: "Wagyu", priceDeltaPerKgCents: 8000 },
     ],
   },
   {
