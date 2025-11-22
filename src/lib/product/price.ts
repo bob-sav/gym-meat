@@ -11,6 +11,10 @@ export function parseUnitLabelToGrams(unitLabel?: string | null): number {
   return 0;
 }
 
+export function lineGrams(line: CartLine): number {
+  return line.variantSizeGrams ?? parseUnitLabelToGrams(line.unitLabel) ?? 0;
+}
+
 /** Fixed add-ons per unit (cents, non-perKg options only) */
 export function sumFixedAdd(
   options: Pick<CartOption, "priceDeltaCents" | "perKg">[]
@@ -51,4 +55,29 @@ export function lineTotalCents(line: CartLine) {
 export function cartTotals(cart: Cart) {
   const subtotalCents = cart.lines.reduce((s, l) => s + lineTotalCents(l), 0);
   return { subtotalCents, totalCents: subtotalCents };
+}
+
+/** base price → cents per kg (e.g. 500g -> scale to 1000g) */
+export function lineBasePerKgCents(line: CartLine): number {
+  const grams = lineGrams(line);
+  if (!grams) return 0;
+  // basePriceCents * (1000 / grams)
+  return Math.round((line.basePriceCents * 1000) / grams);
+}
+
+/** sum of per-kg option deltas (Ft/kg), e.g. Wagyu origin */
+export function linePerKgDeltaCents(line: CartLine): number {
+  return line.options
+    .filter((o) => o.perKg)
+    .reduce((s, o) => s + (o.priceDeltaCents ?? 0), 0);
+}
+
+/**
+ * "Public" price per kg for this line:
+ * base-per-kg + perKg options-per-kg.
+ */
+export function linePublicPerKgCents(line: CartLine): number {
+  const basePerKg = lineBasePerKgCents(line);
+  const deltaPerKg = linePerKgDeltaCents(line);
+  return basePerKg + deltaPerKg;
 }

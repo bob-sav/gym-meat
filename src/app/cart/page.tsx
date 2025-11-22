@@ -5,11 +5,37 @@ import Link from "next/link";
 import { formatHuf } from "@/lib/format";
 import s from "./cart.module.css";
 
-import type { Cart, CartLine, CartOption } from "@/lib/product/cart-types";
-import { lineUnitTotalCents } from "@/lib/product/price";
+import type { Cart } from "@/lib/product/cart-types";
+import {
+  lineUnitTotalCents,
+  parseUnitLabelToGrams,
+  linePublicPerKgCents,
+} from "@/lib/product/price";
+import { SPECIES, PARTS_BY_SPECIES } from "@/lib/product/constants";
+import type { SpeciesKey, PartKey } from "@/lib/catalog-types";
 
 function money(amountHuf: number) {
   return formatHuf(amountHuf);
+}
+
+function formatSpeciesPart(
+  species?: SpeciesKey,
+  part?: PartKey | null
+): string {
+  if (!species && !part) return "";
+
+  let speciesLabel = species ?? "";
+  const sp = SPECIES.find((s) => s.key === species);
+  if (sp) speciesLabel = sp.label;
+
+  let partLabel = "";
+  if (species && part) {
+    const partsForSpecies = PARTS_BY_SPECIES[species];
+    const found = partsForSpecies?.find((p) => p.key === part);
+    partLabel = found?.label ?? part;
+  }
+
+  return partLabel ? `${speciesLabel} · ${partLabel}` : speciesLabel;
 }
 
 export default function CartPage() {
@@ -213,6 +239,22 @@ export default function CartPage() {
             const lineTotal = unit * l.qty;
             const isUpdating = !!pending[l.id];
 
+            const grams =
+              l.variantSizeGrams ?? parseUnitLabelToGrams(l.unitLabel) ?? 0;
+            const kg = grams / 1000;
+
+            /*const fixedAddCents = l.options
+              .filter((o) => !o.perKg)
+              .reduce((s, o) => s + o.priceDeltaCents, 0);*/
+
+            /*const perKgSum = l.options
+              .filter((o) => o.perKg)
+              .reduce((s, o) => s + o.priceDeltaCents, 0);*/
+
+            //const perKgForVariantCents = Math.round(perKgSum * kg);
+
+            const publicPerKg = linePublicPerKgCents(l); // 👈 base/kg + origin/kg
+
             return (
               <article
                 key={l.id}
@@ -220,7 +262,21 @@ export default function CartPage() {
               >
                 <div className={s.row}>
                   <div>
-                    <div className={s.name}>{l.name}</div>
+                    {/* NEW: species + part */}
+                    {l.species && (
+                      <div
+                        style={{
+                          fontSize: "1rem",
+                          fontWeight: 700,
+                          color: "#fff",
+                        }}
+                      >
+                        {formatSpeciesPart(l.species, l.part ?? null)}
+                      </div>
+                    )}
+                    <div className={s.name} style={{ marginTop: "0.15rem" }}>
+                      {l.name}
+                    </div>
                     <div className={s.unitLabel}>{l.unitLabel}</div>
                   </div>
                   <div
@@ -235,20 +291,43 @@ export default function CartPage() {
                   </div>
                 </div>
 
+                {/* OPTIONS */}
                 {!!l.options.length && (
                   <ul className={s.options}>
-                    {l.options.map((o) => (
-                      <li key={o.optionId}>
-                        {o.label}
-                        {o.priceDeltaCents
-                          ? o.perKg
-                            ? ` (+${money(o.priceDeltaCents)} / kg)`
-                            : ` (+${money(o.priceDeltaCents)})`
-                          : ""}
-                      </li>
-                    ))}
+                    {l.options.map((o) => {
+                      const applied =
+                        o.perKg && kg
+                          ? Math.round(o.priceDeltaCents * kg)
+                          : o.priceDeltaCents;
+
+                      if (!applied) {
+                        return <li key={o.optionId}>{o.label}</li>;
+                      }
+
+                      return (
+                        <li key={o.optionId}>
+                          {o.label} ( {money(publicPerKg)} / kg )
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
+
+                {/* breakdown with public / kg */}
+                {/*<div
+                  style={{
+                    fontSize: 12,
+                    color: "var(--border)",
+                    marginTop: 4,
+                  }}
+                >
+                  Unit: {money(unit)} = {money(l.basePriceCents)} base
+                  {fixedAddCents ? ` + ${money(fixedAddCents)} opts` : ""}
+                  {perKgForVariantCents
+                    ? ` + ${money(perKgForVariantCents)} per-kg`
+                    : ""}
+                  {publicPerKg ? ` · ≈ ${money(publicPerKg)} / kg` : ""}
+                </div>*/}
 
                 <div className={s.controls}>
                   <div className={s.qty}>

@@ -22,6 +22,7 @@ type Line = {
   species: string;
   part: string | null;
   variantSizeGrams: number | null;
+  prepLabels?: string[];
 };
 
 type Order = {
@@ -449,15 +450,28 @@ export default function GymAdminPage() {
                     <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
                       {o.lines.map((l) => (
                         <li key={l.id}>
-                          {l.qty}× {l.productName}
-                          {l.unitLabel ? ` · ${l.unitLabel}` : ""}
-                          {l.variantSizeGrams
-                            ? ` · ${l.variantSizeGrams}g`
-                            : ""}
-                          {l.part ? ` · ${l.part}` : ""}
+                          <div>
+                            {l.qty}× {l.species}
+                            {l.part ? ` · ${l.part}` : ""}
+                            {l.prepLabels?.length
+                              ? ` · ${l.prepLabels.join(" · ")}`
+                              : ""}
+                            {l.variantSizeGrams
+                              ? ` · ${l.variantSizeGrams}g`
+                              : ""}
+                          </div>
+                          <div
+                            style={{
+                              color: "var(--border)",
+                              fontSize: "0.8rem",
+                            }}
+                          >
+                            {l.productName}
+                          </div>
                         </li>
                       ))}
                     </ul>
+
                     <div style={{ color: "var(--border)", fontSize: 12 }}>
                       Pickup: {o.pickupGymName || "—"}
                     </div>
@@ -500,15 +514,28 @@ export default function GymAdminPage() {
                     <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
                       {o.lines.map((l) => (
                         <li key={l.id}>
-                          {l.qty}× {l.productName}
-                          {l.unitLabel ? ` · ${l.unitLabel}` : ""}
-                          {l.variantSizeGrams
-                            ? ` · ${l.variantSizeGrams}g`
-                            : ""}
-                          {l.part ? ` · ${l.part}` : ""}
+                          <div>
+                            {l.qty}× {l.species}
+                            {l.part ? ` · ${l.part}` : ""}
+                            {l.prepLabels?.length
+                              ? ` · ${l.prepLabels.join(" · ")}`
+                              : ""}
+                            {l.variantSizeGrams
+                              ? ` · ${l.variantSizeGrams}g`
+                              : ""}
+                          </div>
+                          <div
+                            style={{
+                              color: "var(--border)",
+                              fontSize: "0.8rem",
+                            }}
+                          >
+                            {l.productName}
+                          </div>
                         </li>
                       ))}
                     </ul>
+
                     <div>
                       <b>Total:</b> {formatHuf(o.totalCents)}
                     </div>
@@ -566,13 +593,26 @@ export default function GymAdminPage() {
                 <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
                   {o.lines.map((l) => (
                     <li key={l.id}>
-                      {l.qty}× {l.productName}
-                      {l.unitLabel ? ` · ${l.unitLabel}` : ""}
-                      {l.variantSizeGrams ? ` · ${l.variantSizeGrams}g` : ""}
-                      {l.part ? ` · ${l.part}` : ""}
+                      <div>
+                        {l.qty}× {l.species}
+                        {l.part ? ` · ${l.part}` : ""}
+                        {l.prepLabels?.length
+                          ? ` · ${l.prepLabels.join(" · ")}`
+                          : ""}
+                        {l.variantSizeGrams ? ` · ${l.variantSizeGrams}g` : ""}
+                      </div>
+                      <div
+                        style={{
+                          color: "var(--border)",
+                          fontSize: "0.8rem",
+                        }}
+                      >
+                        {l.productName}
+                      </div>
                     </li>
                   ))}
                 </ul>
+
                 <div>
                   <b>Total:</b> {formatHuf(o.totalCents)}
                 </div>
@@ -662,15 +702,28 @@ export default function GymAdminPage() {
                     <ul style={{ margin: "8px 0", paddingLeft: 16 }}>
                       {o.lines.map((l) => (
                         <li key={l.id}>
-                          {l.qty}× {l.productName}
-                          {l.unitLabel ? ` · ${l.unitLabel}` : ""}
-                          {l.variantSizeGrams
-                            ? ` · ${l.variantSizeGrams}g`
-                            : ""}
-                          {l.part ? ` · ${l.part}` : ""}
+                          <div>
+                            {l.qty}× {l.species}
+                            {l.part ? ` · ${l.part}` : ""}
+                            {l.prepLabels?.length
+                              ? ` · ${l.prepLabels.join(" · ")}`
+                              : ""}
+                            {l.variantSizeGrams
+                              ? ` · ${l.variantSizeGrams}g`
+                              : ""}
+                          </div>
+                          <div
+                            style={{
+                              color: "var(--border)",
+                              fontSize: "0.8rem",
+                            }}
+                          >
+                            {l.productName}
+                          </div>
                         </li>
                       ))}
                     </ul>
+
                     <div>
                       <b>Total:</b> {formatHuf(o.totalCents)}
                     </div>

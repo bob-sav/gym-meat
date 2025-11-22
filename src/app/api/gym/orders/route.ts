@@ -1,3 +1,4 @@
+// src/app/api/gym/orders/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient, OrderState } from "@prisma/client";
 import { z } from "zod";
@@ -67,7 +68,7 @@ export async function GET(req: NextRequest) {
   const where: any = { pickupGymId: { in: targetGymIds } };
   if (statesArr.length) where.state = { in: statesArr };
 
-  const items = await prisma.order.findMany({
+  const rows = await prisma.order.findMany({
     where,
     orderBy: { createdAt: "asc" },
     select: {
@@ -89,11 +90,32 @@ export async function GET(req: NextRequest) {
           species: true,
           part: true,
           variantSizeGrams: true,
+          optionsJson: true, // NEW
         },
         orderBy: { id: "asc" },
       },
     },
   });
+
+  // map optionsJson -> prepLabels and strip optionsJson
+  const items = rows.map((o) => ({
+    ...o,
+    lines: o.lines.map((l) => {
+      const options = ((l as any).optionsJson as any[]) ?? [];
+      const prepLabels = options
+        .map((op) => op?.label as string | undefined)
+        .filter(
+          (label): label is string => !!label && typeof label === "string"
+        );
+
+      const { optionsJson, ...rest } = l as any;
+
+      return {
+        ...rest,
+        prepLabels,
+      };
+    }),
+  }));
 
   return NextResponse.json({ items });
 }

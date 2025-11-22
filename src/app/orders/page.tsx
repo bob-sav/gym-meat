@@ -7,7 +7,7 @@ import { PrismaClient } from "@prisma/client";
 import Link from "next/link";
 
 import type { CartLine, CartOption } from "@/lib/product/cart-types";
-import { lineUnitTotalCents, parseUnitLabelToGrams } from "@/lib/product/price";
+import { lineUnitTotalCents, linePublicPerKgCents } from "@/lib/product/price";
 import CartBumpClient from "./CartBumpClient";
 
 const prisma = new PrismaClient();
@@ -198,26 +198,28 @@ export default async function OrdersPage() {
                     const unitTotalCents = lineUnitTotalCents(lineForMath);
                     const lineTotalCents = unitTotalCents * l.qty;
 
-                    const grams =
+                    /*const grams =
                       l.variantSizeGrams ??
                       parseUnitLabelToGrams(l.unitLabel ?? "") ??
-                      0;
+                      0;*/
 
-                    const fixedAddCents = options
+                    /*const fixedAddCents = options
                       .filter((op) => !op.perKg)
-                      .reduce((s, op) => s + op.priceDeltaCents, 0);
+                      .reduce((s, op) => s + op.priceDeltaCents, 0);*/
 
-                    const perKgSum = options
+                    /*const perKgSum = options
                       .filter((op) => op.perKg)
-                      .reduce((s, op) => s + op.priceDeltaCents, 0);
+                      .reduce((s, op) => s + op.priceDeltaCents, 0);*/
 
-                    const perKgForVariantCents = Math.round(
+                    /*const perKgForVariantCents = Math.round(
                       perKgSum * (grams / 1000)
-                    );
+                    );*/
 
-                    const unitSuffix = l.unitLabel ? ` · ${l.unitLabel}` : "";
+                    const unitSuffix = l.unitLabel ? `  ${l.unitLabel}` : "";
 
                     const money = (amountHuf: number) => formatHuf(amountHuf);
+
+                    const publicPerKg = linePublicPerKgCents(lineForMath); // 👈 base/kg + origin/kg
 
                     return (
                       <div
@@ -230,15 +232,12 @@ export default async function OrdersPage() {
                       >
                         <div>
                           <div style={{ fontWeight: 500 }}>
-                            {l.qty} × {l.productName}
-                            <span style={{ color: "var(--border)" }}>
-                              {unitSuffix}
-                            </span>
+                            {l.qty} × {unitSuffix} · {l.species}
+                            {l.part ? ` · ${l.part}` : ""}
                           </div>
 
                           <div style={{ fontSize: 12, color: "var(--border)" }}>
-                            {l.species}
-                            {l.part ? ` · ${l.part}` : ""}
+                            {l.productName}
                           </div>
 
                           {!!options.length && (
@@ -249,20 +248,20 @@ export default async function OrdersPage() {
                                 marginTop: 2,
                               }}
                             >
-                              {options
-                                .map((op) => {
-                                  if (!op.priceDeltaCents) return op.label;
-                                  return op.perKg
-                                    ? `${op.label} (+${money(
-                                        op.priceDeltaCents
-                                      )} / kg)`
-                                    : `${op.label} (+${money(op.priceDeltaCents)})`;
-                                })
-                                .join(", ")}
+                              <ul style={{ paddingLeft: "1.1em", margin: 0 }}>
+                                {options.map((op, idx) => (
+                                  <li key={idx}>
+                                    {op.label}
+                                    {op.perKg && publicPerKg > 0
+                                      ? ` (${money(publicPerKg)} / kg)`
+                                      : ""}
+                                  </li>
+                                ))}
+                              </ul>
                             </div>
                           )}
 
-                          {/* Breakdown per unit */}
+                          {/* Breakdown per unit (simplified) */}
                           <div
                             style={{
                               fontSize: 12,
@@ -270,14 +269,7 @@ export default async function OrdersPage() {
                               marginTop: 4,
                             }}
                           >
-                            Unit: {money(unitTotalCents)} ={" "}
-                            {money(l.basePriceCents)} base
-                            {fixedAddCents
-                              ? ` + ${money(fixedAddCents)} opts`
-                              : ""}
-                            {perKgForVariantCents
-                              ? ` + ${money(perKgForVariantCents)} per-kg`
-                              : ""}
+                            Unit: {money(unitTotalCents)} × {l.qty}
                           </div>
                         </div>
 

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import type { Cart } from "@/lib/product/cart-types";
+import type { SpeciesKey, PartKey } from "@/lib/catalog-types";
 import {
   cartTotals as computeCartTotals,
   lineUnitTotalCents,
@@ -21,6 +22,14 @@ const CartSchema = z.object({
       basePriceCents: z.number().int().nonnegative(),
       qty: z.number().int().positive(),
       variantSizeGrams: z.number().int().positive().optional(),
+      species: z
+        .custom<SpeciesKey>((val) => typeof val === "string")
+        .optional(),
+      part: z
+        .custom<PartKey | null>(
+          (val) => typeof val === "string" || val === null
+        )
+        .optional(),
       options: z.array(
         z.object({
           groupId: z.string(),

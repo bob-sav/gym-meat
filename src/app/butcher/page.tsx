@@ -383,25 +383,31 @@ export default function ButcherBoard() {
                     </div>
 
                     <div style={{ marginTop: "1rem" }}>
+                      {/* species · part · prep1 · prep2 */}
                       <div style={{ fontWeight: 600 }}>
-                        {li.species} {li.part ? ` · ${li.part}` : ""}
+                        {li.species}
+                        {li.part ? ` · ${li.part}` : ""}
+                        {li.prepLabels?.length
+                          ? ` · ${li.prepLabels.join(" · ")}`
+                          : ""}
                       </div>
                       <div style={{ fontWeight: 600, marginTop: "0.375rem" }}>
-                        {li.qty}×{li.unitLabel ? ` · ${li.unitLabel}` : ""}
+                        {li.qty}×
                         {li.variantSizeGrams
                           ? ` · ${li.variantSizeGrams}g`
                           : ""}
                       </div>
-                      {!!li.prepLabels?.length && (
+                      {/*{!!li.prepLabels?.length && (
                         <div style={{ marginTop: "0.375rem", fontWeight: 600 }}>
                           Prep: {li.prepLabels.join(", ")}
                         </div>
-                      )}
+                      )}*/}
 
                       {li.lineState === "READY" && (
                         <div style={{ marginTop: "1rem" }} className="total">
-                          {/* Replace this with your actual total calculation and display */}
-                          Total: {formatHuf(li.basePriceCents * li.qty)}
+                          {/* unit * qty = total, for receipt-style reading */}
+                          {formatHuf(li.basePriceCents)} × {li.qty} ={" "}
+                          {formatHuf(li.basePriceCents * li.qty)}
                         </div>
                       )}
                     </div>

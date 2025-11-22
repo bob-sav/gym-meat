@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
 import { getCart, setCart, cartTotals, lineUnitTotalCents } from "@/lib/cart";
+import { linePublicPerKgCents } from "@/lib/product/price";
 import type { CartLine, CartOption } from "@/lib/product/cart-types";
 import { generateShortCode } from "@/lib/shortcode";
 import { auth } from "@/auth";
@@ -138,66 +139,63 @@ export async function POST(req: NextRequest) {
         unitLabel: true,
         basePriceCents: true,
         variantSizeGrams: true,
-        optionsJson: true, // includes priceDeltaCents & priceDeltaPerKgCents
+        optionsJson: true,
+        species: true,
+        part: true,
       },
       orderBy: { id: "asc" },
     });
 
-    // 5) Compute unit + total per line (reuse cart math over normalized shape)
     type EmailLine = {
       qty: number;
       name: string;
       unit: string | null;
       unitCents: number;
       totalCents: number;
+      species: string;
+      part: string | null;
+      prepLabels: string[];
+      publicPerKgCents: number;
     };
 
     const emailLines: EmailLine[] = emailLinesRaw.map((l) => {
-      const lineForMath: CartLine = {
+      const options = (l.optionsJson as any[]) ?? [];
+
+      const lineForMath = {
         id: "email",
         productId: "email",
         name: l.productName,
-        unitLabel: l.unitLabel ?? "",
+        unitLabel: l.unitLabel ?? null,
         basePriceCents: l.basePriceCents,
-        variantSizeGrams: l.variantSizeGrams ?? undefined,
+        variantSizeGrams: l.variantSizeGrams ?? null,
+        options,
         qty: l.qty,
-        options: ((l.optionsJson as any[]) ?? []).map(
-          (o: any, idx: number): CartOption => {
-            const legacyPerKg =
-              typeof o.priceDeltaPerKgCents === "number" &&
-              o.priceDeltaPerKgCents !== 0;
-
-            const perKg = typeof o.perKg === "boolean" ? o.perKg : legacyPerKg;
-
-            const priceDeltaCents =
-              typeof o.priceDeltaCents === "number"
-                ? o.priceDeltaCents
-                : legacyPerKg
-                  ? (o.priceDeltaPerKgCents ?? 0)
-                  : 0;
-
-            return {
-              groupId: o.groupId ?? `email-group-${idx}`,
-              optionId: o.optionId ?? `email-opt-${idx}`,
-              label: o.label ?? "",
-              priceDeltaCents,
-              perKg,
-            };
-          }
-        ),
       };
 
-      const unitCents = lineUnitTotalCents(lineForMath);
+      const unitCents = lineUnitTotalCents(lineForMath as any);
+      const publicPerKgCents = linePublicPerKgCents(lineForMath as any);
+
+      const prepLabels =
+        options
+          .map((op) => op?.label as string | undefined)
+          .filter(
+            (label): label is string => !!label && typeof label === "string"
+          ) ?? [];
+
       return {
         qty: l.qty,
         name: l.productName,
         unit: l.unitLabel,
         unitCents,
         totalCents: unitCents * l.qty,
+        species: String(l.species),
+        part: l.part ? String(l.part) : null,
+        prepLabels,
+        publicPerKgCents,
       };
     });
 
-    // 6) Send email with explicit totals
+    // 6) Send email with explicit totals (+ richer line data if template wants it)
     try {
       await sendEmail({
         to: session.user.email!,

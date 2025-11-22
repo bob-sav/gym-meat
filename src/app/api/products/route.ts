@@ -117,7 +117,7 @@ export async function GET(req: NextRequest) {
         minSelect: g.minSelect,
         maxSelect: g.maxSelect,
         sortOrder: g.sortOrder,
-        perKg: g.perKg,
+        perKg: !!g.perKg,
         options: g.options.map((o) => ({
           id: o.id,
           label: o.label,

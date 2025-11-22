@@ -195,6 +195,8 @@ export async function POST(req: NextRequest) {
       id: crypto.randomUUID(),
       productId: p.id,
       name: p.name,
+      species: p.species as any, // NEW
+      part: (p.part as any) ?? null, // NEW
       unitLabel: `${(variant.sizeGrams / 1000).toFixed(2)} kg`,
       basePriceCents: variant.priceCents,
       variantSizeGrams: variant.sizeGrams,

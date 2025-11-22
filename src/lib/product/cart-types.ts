@@ -1,4 +1,6 @@
 // src/lib/product/cart-types.ts
+import type { SpeciesKey, PartKey } from "@/lib/catalog-types";
+
 export type CartOption = {
   groupId: string;
   optionId: string;
@@ -16,6 +18,8 @@ export type CartLine = {
   options: CartOption[];
   qty: number;
   variantSizeGrams?: number; // preferred weight source
+  species?: SpeciesKey;
+  part?: PartKey | null;
 };
 
 export type Cart = { lines: CartLine[] };
